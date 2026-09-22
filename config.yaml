@@ -1,0 +1,31 @@
+model:
+  pack: "buffalo_l"
+  det_size: [640, 640]
+  providers: ["CPUExecutionProvider"]   # ["CUDAExecutionProvider"] later
+
+detection:
+  confidence_threshold: 0.5
+  min_face_size_px: 80        # reject smaller — embeddings unreliable
+
+quality:
+  blur_threshold: 60.0        # variance of Laplacian; tune in Phase 7
+  max_yaw_deg: 35.0
+  max_pitch_deg: 35.0
+
+matching:
+  # STARTING POINTS ONLY. Phase 7 replaces these with measured values.
+  # Cosine similarity on L2-normalised ArcFace embeddings.
+  threshold_high: 0.40        # >= this AND margin passed -> CONFIRMED
+  threshold_low: 0.30         # >= this -> TENTATIVE
+  runner_up_margin: 0.05      # best must beat 2nd-best identity by this
+
+enrollment:
+  images_per_person: 5
+  min_images: 3
+
+video:
+  source: 0                   # webcam index, or "rtsp://..." later
+  process_every_n_frames: 3
+  track_iou_threshold: 0.3
+  track_max_age_frames: 15
+  track_keep_best_n: 5        # best-quality embeddings kept per track for the decision

@@ -1,0 +1,115 @@
+{
+  "info": {
+    "name": "Face Recognition Prototype",
+    "_postman_id": "7f1d2c1e-face-4rec-9a1b-edara00000001",
+    "description": "Click through in order: Health -> Create person -> Enroll -> Recognize -> Delete.\n\nBefore running: set the collection variable `repo_dir` to the absolute path of this repo (the enrol/recognize requests attach `scripts/1.jpeg`, `2.jpeg`, `3.jpeg` from it). Postman asks you to confirm file paths on first use.\n\nServer: `uvicorn api.main:app --host 127.0.0.1 --port 8000` — no auth, localhost only.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:8000" },
+    { "key": "repo_dir", "value": "E:/Edara Projects/Face Recognition" },
+    { "key": "person_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Health",
+      "request": { "method": "GET", "url": "{{baseUrl}}/health" },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('200 with model_version', () => {",
+        "  pm.response.to.have.status(200);",
+        "  pm.expect(pm.response.json().model_version).to.be.a('string');",
+        "});"
+      ]}}]
+    },
+    {
+      "name": "2. List persons",
+      "request": { "method": "GET", "url": "{{baseUrl}}/persons" }
+    },
+    {
+      "name": "3. Create person",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/persons",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"name\": \"Yousef Sobhy\",\n  \"role\": \"resident\"\n}" }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('201 created', () => pm.response.to.have.status(201));",
+        "pm.collectionVariables.set('person_id', pm.response.json().person_id);",
+        "console.log('person_id =', pm.response.json().person_id);"
+      ]}}]
+    },
+    {
+      "name": "4. Enroll images (multipart files[])",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/persons/{{person_id}}/enroll",
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "files", "type": "file", "src": "{{repo_dir}}/scripts/1.jpeg" },
+            { "key": "files", "type": "file", "src": "{{repo_dir}}/scripts/2.jpeg" }
+          ]
+        },
+        "description": "Attach 1..10 images of the SAME person. Response lists rejected files with reasons and the pairwise similarity between accepted images (same person => expect ~0.6+)."
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "const b = pm.response.json();",
+        "pm.test('enrolled >= 1', () => pm.expect(b.enrolled).to.be.at.least(1));",
+        "if (b.pairwise_similarity.min !== null) {",
+        "  pm.test('pairwise min >= 0.5 (same person)', () => pm.expect(b.pairwise_similarity.min).to.be.at.least(0.5));",
+        "}"
+      ]}}]
+    },
+    {
+      "name": "5a. Recognize - enrolled person (multipart)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/recognize",
+        "body": { "mode": "formdata", "formdata": [
+          { "key": "file", "type": "file", "src": "{{repo_dir}}/scripts/2.jpeg" }
+        ]}
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "const b = pm.response.json();",
+        "pm.test('has faces with full detail', () => {",
+        "  pm.expect(b.faces.length).to.be.at.least(1);",
+        "  const f = b.faces[0];",
+        "  ['decision','similarity','runner_up_gap','quality','reason'].forEach(k => pm.expect(f).to.have.property(k));",
+        "});",
+        "console.log(b.faces.map(f => `${f.decision} ${f.name} sim=${f.similarity} gap=${f.runner_up_gap}`));"
+      ]}}]
+    },
+    {
+      "name": "5b. Recognize - unenrolled person (multipart)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/recognize",
+        "body": { "mode": "formdata", "formdata": [
+          { "key": "file", "type": "file", "src": "{{repo_dir}}/scripts/3.jpeg" }
+        ]}
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('unknown', () => pm.expect(pm.response.json().faces[0].decision).to.eql('unknown'));"
+      ]}}]
+    },
+    {
+      "name": "5c. Recognize - base64 JSON",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/recognize/base64",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": { "mode": "raw", "raw": "{\n  \"image_b64\": \"<paste base64 of a JPEG here; a data:image/jpeg;base64, prefix is OK>\"\n}" },
+        "description": "PowerShell to produce the payload:\n  [Convert]::ToBase64String([IO.File]::ReadAllBytes('scripts\\2.jpeg')) | Set-Clipboard"
+      }
+    },
+    {
+      "name": "6. Delete person",
+      "request": { "method": "DELETE", "url": "{{baseUrl}}/persons/{{person_id}}" },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('204', () => pm.response.to.have.status(204));",
+        "pm.collectionVariables.set('person_id', '');"
+      ]}}]
+    }
+  ]
+}

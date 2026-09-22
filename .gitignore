@@ -1,0 +1,23 @@
+# Biometric data: images, embeddings, DB, downloaded models. NEVER commit. (spec §9)
+# A repo history containing face images cannot be cleaned up after the fact.
+data/
+samples/
+*.jpg
+*.jpeg
+*.png
+*.bmp
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

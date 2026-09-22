@@ -1,0 +1,15 @@
+# Python 3.11 (spec §1). All pins verified to install as binary wheels on
+# Windows x64 without a C++ toolchain (insightface 0.7.x has no wheel and
+# fails to build; 2.0 ships one with the same FaceAnalysis / normed_embedding API).
+insightface==2.0
+onnxruntime==1.30.0
+opencv-python==5.0.0.93
+numpy==2.4.6
+pydantic==2.9.2
+pydantic-settings==2.6.1
+PyYAML==6.0.2
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.17
+pytest==8.3.3
+httpx==0.27.2          # fastapi TestClient
