@@ -7,14 +7,20 @@ samples/
 *.png
 *.bmp
 
+# Logs
+*.log
+logs/
+
 # Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+.venv*/
 venv/
 .pytest_cache/
 .mypy_cache/
+.env
 
 # IDE / OS
 .vscode/
