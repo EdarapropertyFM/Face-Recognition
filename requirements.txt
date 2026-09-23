@@ -13,3 +13,5 @@ uvicorn[standard]==0.32.1
 python-multipart==0.0.17
 pytest==8.3.3
 httpx==0.27.2          # fastapi TestClient
+requests==2.34.2       # ai_relay -> STMC backend events
+psycopg[binary]==3.3.6 # gallery metadata in PostgreSQL

@@ -18,6 +18,35 @@ search with NumPy. Adding a person is a database insert.
 - [x] Phase 6: FastAPI + Postman collection
 - [ ] Phase 7: threshold calibration + evaluation report
 
+## Storage
+
+Gallery metadata (persons, template rows) lives in **PostgreSQL**, in its own
+`facerec` schema so it can share a database with the STMC backend. The 512-d
+embeddings stay in `data/embeddings.npy` and are searched with a NumPy matrix
+multiply — no vector database (spec §0.3). `template.row_index` joins the two.
+
+Connection settings are in `config.yaml` under `database:`, and every one of
+them is overridden by the matching `DB_HOST` / `DB_PORT` / `DB_USER` /
+`DB_PASSWORD` / `DB_NAME` / `DB_SCHEMA` environment variable, so the Python
+side and `backend/.env` can share one configuration.
+
+Start the database (the same container the backend uses):
+
+```powershell
+cd backend; docker compose up -d db; cd ..
+```
+
+Upgrading from the old SQLite gallery (`data/gallery.db`):
+
+```powershell
+.venv\Scripts\python -m scripts.migrate_gallery_to_postgres          # dry run
+.venv\Scripts\python -m scripts.migrate_gallery_to_postgres --apply
+```
+
+It refuses to run if the two stores disagree or PostgreSQL already holds a
+gallery, leaves `embeddings.npy` untouched, and keeps the old file as
+`gallery.db.migrated`.
+
 ## Setup (Windows, Python 3.11)
 
 ```powershell

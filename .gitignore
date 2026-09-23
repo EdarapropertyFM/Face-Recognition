@@ -21,3 +21,21 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Node (backend / frontend)
+node_modules/
+dist/
+build/
+.next/
+*.tsbuildinfo
+npm-debug.log*
+coverage/
+
+# Secrets: DB password, JWT, biometric + camera-credential encryption keys.
+# NEVER commit. .env.example carries the documented placeholders instead.
+.env
+.env.*
+!.env.example
+
+# Backend biometric asset storage
+backend/storage/

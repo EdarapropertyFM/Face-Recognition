@@ -131,6 +131,30 @@ def probe_channel(dvr: DVRConfig, channel: int, timeout_s: float = 6.0,
         cap.release()
 
 
+def probe_rtsp(url: str, timeout_s: float = 6.0) -> tuple[ChannelProbe, "cv2.typing.MatLike | None"]:
+    """Probe one already-built RTSP URL without logging or returning credentials."""
+    t0 = time.monotonic()
+    cap = open_rtsp(url)
+    frame = None
+    try:
+        if not cap.isOpened():
+            return ChannelProbe(0, False, seconds=round(time.monotonic() - t0, 2),
+                                error="cannot open stream; check the URL, credentials, network, and RTSP settings"), None
+        while time.monotonic() - t0 < timeout_s:
+            ok, frame = cap.read()
+            if ok and frame is not None:
+                break
+        if frame is None:
+            return ChannelProbe(0, False, seconds=round(time.monotonic() - t0, 2),
+                                error="stream opened but no frame arrived"), None
+        height, width = frame.shape[:2]
+        return ChannelProbe(0, True, width=width, height=height,
+                            fps=round(cap.get(cv2.CAP_PROP_FPS) or 0.0, 1),
+                            seconds=round(time.monotonic() - t0, 2)), frame
+    finally:
+        cap.release()
+
+
 # ------------------------------------------------------------ persistence
 
 def dvr_path(cfg: Config) -> Path:

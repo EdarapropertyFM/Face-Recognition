@@ -4,8 +4,10 @@ Skipped if the sample photos are absent. Uses a temporary gallery so data/
 is never touched; the model itself loads from data/models as usual.
 """
 import base64
+import uuid
 from pathlib import Path
 
+import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
@@ -25,16 +27,21 @@ def client(tmp_path_factory):
 
     tmp = tmp_path_factory.mktemp("gallery")
     cfg = load_config()                       # real data/models for the engine
+    schema = "test_api_" + uuid.uuid4().hex[:12]
 
-    # Build the real AppState, then swap its gallery for a temporary one.
+    # Build the real AppState, then swap its gallery for a throwaway one:
+    # its own PostgreSQL schema plus its own embeddings file.
     state = m.AppState(cfg)
     state.gallery.close()
     state.gallery = Gallery(cfg, state.engine.model_version,
-                            db_path=tmp / "g.db", npy_path=tmp / "e.npy")
+                            npy_path=tmp / "e.npy", schema=schema)
     cfg.data_dir = tmp / "data"               # after engine load: enrolment images land here
+    state.dvr = None                          # ignore any real data/dvr.json on this machine
     m.AppState = lambda config: state
     with TestClient(m.app) as c:
         yield c
+    with psycopg.connect(cfg.database.conninfo(), autocommit=True) as conn:
+        conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
 
 
 def test_health(client):

@@ -1,25 +1,33 @@
-"""Gallery: SQLite metadata + one NumPy (N, 512) embedding matrix (spec §4.3).
+"""Gallery: PostgreSQL metadata + one NumPy (N, 512) embedding matrix (spec §4.3).
 
-Persistence is deliberately dumb: person/template rows in SQLite, and every
-template's embedding as one row of data/embeddings.npy. `template.row_index`
-is the join key between the two. Search is a single matrix-vector product;
-no vector database at this scale.
+Person and template rows live in PostgreSQL (its own `facerec` schema, so it
+can share a database with the STMC backend); every template's embedding is one
+row of data/embeddings.npy. `template.row_index` is the join key between the
+two. Search is a single matrix-vector product: no vector database (spec §0.3).
+
+The two stores are written in one step and validated against each other on
+load, because a metadata row without its vector — or the reverse — silently
+matches the wrong person.
 """
 from __future__ import annotations
 
-import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
+import psycopg
+from psycopg.rows import dict_row
 
 from .config import Config
 from .engine import EMBEDDING_DIM
 
+# {schema} is filled in from config (database.schema, default "facerec").
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS person (
+CREATE SCHEMA IF NOT EXISTS {schema};
+
+CREATE TABLE IF NOT EXISTS {schema}.person (
   id           TEXT PRIMARY KEY,
   name         TEXT NOT NULL,
   role         TEXT NOT NULL DEFAULT 'resident',
@@ -27,16 +35,16 @@ CREATE TABLE IF NOT EXISTS person (
   status       TEXT NOT NULL DEFAULT 'active'
 );
 
-CREATE TABLE IF NOT EXISTS template (
+CREATE TABLE IF NOT EXISTS {schema}.template (
   id             TEXT PRIMARY KEY,
-  person_id      TEXT NOT NULL REFERENCES person(id) ON DELETE CASCADE,
+  person_id      TEXT NOT NULL REFERENCES {schema}.person(id) ON DELETE CASCADE,
   row_index      INTEGER NOT NULL,
   quality_score  REAL,
   image_path     TEXT,
   model_version  TEXT NOT NULL,
   created_at     TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS template_person_idx ON template(person_id);
+CREATE INDEX IF NOT EXISTS template_person_idx ON {schema}.template(person_id);
 """
 
 
@@ -63,26 +71,34 @@ def _now() -> str:
 
 class Gallery:
     def __init__(self, config: Config, model_version: str,
-                 db_path: Path | None = None, npy_path: Path | None = None) -> None:
+                 npy_path: Path | None = None, schema: str | None = None) -> None:
         """model_version is stamped on every template; a gallery built with
-        one model must never be searched with embeddings from another."""
-        self.model_version = model_version
-        self.db_path = db_path or (config.data_dir / "gallery.db")
-        self.npy_path = npy_path or (config.data_dir / "embeddings.npy")
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        one model must never be searched with embeddings from another.
 
-        # check_same_thread=False: FastAPI runs sync endpoints in a thread
-        # pool. Callers still serialise access (the API holds a lock).
-        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        self.conn.executescript(SCHEMA)
+        npy_path and schema override the configured locations, which is how
+        tests get an isolated gallery.
+        """
+        self.model_version = model_version
+        self.config = config
+        db = config.database.resolved()
+        self.schema = schema or db.schema_name
+        self.npy_path = npy_path or (config.data_dir / "embeddings.npy")
+        self.npy_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # autocommit: each statement or explicit transaction() block commits on
+        # its own, matching how the old sqlite connection behaved.
+        self.conn = psycopg.connect(config.database.conninfo(), autocommit=True,
+                                    row_factory=dict_row)
+        self.conn.execute(SCHEMA.format(schema=self.schema))
 
         self.embeddings = self._load_embeddings()
         # row_index -> (person_id, name), rebuilt whenever templates change.
         self._row_owner: list[tuple[str, str]] = []
         self._rebuild_row_owner()
         self._stamp = self._disk_stamp()
+
+    def _t(self, table: str) -> str:
+        return f"{self.schema}.{table}"
 
     # ------------------------------------------------------------------ io
 
@@ -96,7 +112,7 @@ class Gallery:
             return (0.0, -1)
 
     def reload_if_changed(self) -> bool:
-        """Re-read the gallery from disk if another process rewrote it, so a
+        """Re-read the gallery if another process rewrote it, so a
         long-running consumer (live demo) reflects API deletes immediately.
         Returns True if a reload happened."""
         stamp = self._disk_stamp()
@@ -107,7 +123,7 @@ class Gallery:
             self.embeddings = self._load_embeddings()
             self._rebuild_row_owner()
         except RuntimeError:
-            # Caught the writer between its DB commit and its .npy replace;
+            # Caught the writer between its commit and its .npy replace;
             # keep the previous state and try again on the next call.
             self.embeddings, self._row_owner = old_embeddings, old_owner
             return False
@@ -124,7 +140,7 @@ class Gallery:
 
     def _save_embeddings(self) -> None:
         # Write to a temp file then replace, so a crash mid-write cannot
-        # leave a truncated matrix behind a valid DB.
+        # leave a truncated matrix behind valid metadata.
         # (np.save appends '.npy' to bare paths, so write via a file handle.)
         tmp = self.npy_path.with_suffix(".npy.tmp")
         with tmp.open("wb") as fh:
@@ -134,8 +150,9 @@ class Gallery:
 
     def _rebuild_row_owner(self) -> None:
         rows = self.conn.execute(
-            "SELECT t.row_index, t.person_id, p.name FROM template t "
-            "JOIN person p ON p.id = t.person_id ORDER BY t.row_index").fetchall()
+            f"SELECT t.row_index, t.person_id, p.name FROM {self._t('template')} t "
+            f"JOIN {self._t('person')} p ON p.id = t.person_id "
+            f"ORDER BY t.row_index").fetchall()
         n = self.embeddings.shape[0]
         if len(rows) != n or any(r["row_index"] != i for i, r in enumerate(rows)):
             raise RuntimeError(
@@ -151,24 +168,25 @@ class Gallery:
 
     def add_person(self, name: str, role: str = "resident") -> str:
         person_id = str(uuid.uuid4())
-        with self.conn:
-            self.conn.execute(
-                "INSERT INTO person (id, name, role, created_at, status) "
-                "VALUES (?, ?, ?, ?, 'active')",
-                (person_id, name, role, _now()))
+        self.conn.execute(
+            f"INSERT INTO {self._t('person')} (id, name, role, created_at, status) "
+            f"VALUES (%s, %s, %s, %s, 'active')",
+            (person_id, name, role, _now()))
         return person_id
 
     def get_person(self, person_id: str) -> Person | None:
         r = self.conn.execute(
-            "SELECT p.*, (SELECT COUNT(*) FROM template t WHERE t.person_id = p.id) "
-            "AS template_count FROM person p WHERE p.id = ?", (person_id,)).fetchone()
-        return Person(**dict(r)) if r else None
+            f"SELECT p.*, (SELECT COUNT(*) FROM {self._t('template')} t "
+            f"WHERE t.person_id = p.id) AS template_count "
+            f"FROM {self._t('person')} p WHERE p.id = %s", (person_id,)).fetchone()
+        return Person(**r) if r else None
 
     def list_persons(self) -> list[Person]:
         rows = self.conn.execute(
-            "SELECT p.*, (SELECT COUNT(*) FROM template t WHERE t.person_id = p.id) "
-            "AS template_count FROM person p ORDER BY p.created_at").fetchall()
-        return [Person(**dict(r)) for r in rows]
+            f"SELECT p.*, (SELECT COUNT(*) FROM {self._t('template')} t "
+            f"WHERE t.person_id = p.id) AS template_count "
+            f"FROM {self._t('person')} p ORDER BY p.created_at").fetchall()
+        return [Person(**r) for r in rows]
 
     def add_templates(self, person_id: str, embeddings: np.ndarray,
                       quality: list[float], image_paths: list[str]) -> None:
@@ -197,11 +215,11 @@ class Gallery:
              image_paths[i], self.model_version, now)
             for i in range(n)
         ]
-        with self.conn:
-            self.conn.executemany(
-                "INSERT INTO template (id, person_id, row_index, quality_score, "
-                "image_path, model_version, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                rows)
+        with self.conn.transaction():
+            self.conn.cursor().executemany(
+                f"INSERT INTO {self._t('template')} (id, person_id, row_index, "
+                f"quality_score, image_path, model_version, created_at) "
+                f"VALUES (%s, %s, %s, %s, %s, %s, %s)", rows)
         self.embeddings = np.vstack([self.embeddings, embeddings])
         self._save_embeddings()
         self._rebuild_row_owner()
@@ -215,19 +233,22 @@ class Gallery:
             raise KeyError(f"no such person: {person_id}")
 
         doomed = {r["row_index"] for r in self.conn.execute(
-            "SELECT row_index FROM template WHERE person_id = ?", (person_id,))}
+            f"SELECT row_index FROM {self._t('template')} WHERE person_id = %s",
+            (person_id,)).fetchall()}
         keep = [i for i in range(self.embeddings.shape[0]) if i not in doomed]
         # old row_index -> new row_index for every surviving template
         remap = {old: new for new, old in enumerate(keep)}
 
-        with self.conn:
-            self.conn.execute("DELETE FROM template WHERE person_id = ?", (person_id,))
-            self.conn.execute("DELETE FROM person WHERE id = ?", (person_id,))
+        with self.conn.transaction():
+            self.conn.execute(f"DELETE FROM {self._t('template')} WHERE person_id = %s",
+                              (person_id,))
+            self.conn.execute(f"DELETE FROM {self._t('person')} WHERE id = %s", (person_id,))
             # Two-phase reindex avoids transient collisions: shift everything
             # out of range first, then assign final indices.
-            self.conn.execute("UPDATE template SET row_index = row_index + 1000000000")
-            self.conn.executemany(
-                "UPDATE template SET row_index = ? WHERE row_index = ?",
+            self.conn.execute(
+                f"UPDATE {self._t('template')} SET row_index = row_index + 1000000000")
+            self.conn.cursor().executemany(
+                f"UPDATE {self._t('template')} SET row_index = %s WHERE row_index = %s",
                 [(new, old + 1000000000) for old, new in remap.items()])
 
         self.embeddings = self.embeddings[keep] if keep else \
@@ -242,7 +263,7 @@ class Gallery:
 
     @property
     def person_count(self) -> int:
-        return self.conn.execute("SELECT COUNT(*) FROM person").fetchone()[0]
+        return self.conn.execute(f"SELECT COUNT(*) AS n FROM {self._t('person')}").fetchone()["n"]
 
     def search(self, query: np.ndarray, top_k: int = 5) -> list[Match]:
         """Cosine similarity via embeddings @ query, collapsed to the best

@@ -5,10 +5,11 @@ magic number that the engineer might want to change without editing code.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 # Repository root = two levels above src/facerec/
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +40,41 @@ class MatchingConfig(BaseModel):
     runner_up_margin: float = 0.05
 
 
+class DatabaseConfig(BaseModel):
+    """PostgreSQL connection for the gallery metadata.
+
+    Environment variables win over config.yaml so the Python side can share
+    backend/.env on a machine that runs both.
+    """
+    host: str = "localhost"
+    port: int = 5432
+    user: str = "postgres"
+    password: str = "password"
+    name: str = "stmc"
+    schema_name: str = Field(default="facerec", alias="schema")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    def resolved(self) -> "DatabaseConfig":
+        """A copy with DB_* environment overrides applied."""
+        env = {
+            "host": os.environ.get("DB_HOST"),
+            "port": os.environ.get("DB_PORT"),
+            "user": os.environ.get("DB_USER"),
+            "password": os.environ.get("DB_PASSWORD"),
+            "name": os.environ.get("DB_NAME"),
+            "schema_name": os.environ.get("DB_SCHEMA"),
+        }
+        data = self.model_dump()
+        data.update({k: v for k, v in env.items() if v})
+        return DatabaseConfig(**data)
+
+    def conninfo(self) -> str:
+        r = self.resolved()
+        return (f"host={r.host} port={r.port} user={r.user} "
+                f"password={r.password} dbname={r.name}")
+
+
 class EnrollmentConfig(BaseModel):
     images_per_person: int = 5
     min_images: int = 3
@@ -57,6 +93,7 @@ class Config(BaseModel):
     detection: DetectionConfig = DetectionConfig()
     quality: QualityConfig = QualityConfig()
     matching: MatchingConfig = MatchingConfig()
+    database: DatabaseConfig = DatabaseConfig()
     enrollment: EnrollmentConfig = EnrollmentConfig()
     video: VideoConfig = VideoConfig()
 

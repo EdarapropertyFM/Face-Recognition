@@ -19,6 +19,18 @@ matching:
   threshold_low: 0.30         # >= this -> TENTATIVE
   runner_up_margin: 0.05      # best must beat 2nd-best identity by this
 
+# Gallery metadata (persons and template rows) lives in PostgreSQL; the
+# embedding vectors stay in data/embeddings.npy (spec 0.3: no vector DB).
+# Every value can be overridden by the matching DB_* environment variable,
+# so this shares backend/.env settings when both run on one machine.
+database:
+  host: "localhost"
+  port: 5431
+  user: "postgres"
+  password: "password"
+  name: "stmc"
+  schema: "facerec"           # own schema, separate from the backend's tables
+
 enrollment:
   images_per_person: 5
   min_images: 3

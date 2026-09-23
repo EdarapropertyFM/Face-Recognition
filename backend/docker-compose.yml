@@ -1,0 +1,17 @@
+services:
+  db:
+    image: postgres:15
+    container_name: stmc_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      # Must match DB_NAME in .env; the code defaults to 'stmc' everywhere.
+      POSTGRES_DB: stmc
+    ports:
+      - '5431:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

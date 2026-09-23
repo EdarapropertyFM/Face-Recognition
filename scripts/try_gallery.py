@@ -48,8 +48,8 @@ def main() -> int:
     engine = FaceEngine(cfg)
 
     tmp = Path(tempfile.mkdtemp(prefix="facerec_try_"))
-    gallery = Gallery(cfg, engine.model_version,
-                      db_path=tmp / "gallery.db", npy_path=tmp / "embeddings.npy")
+    gallery = Gallery(cfg, engine.model_version, npy_path=tmp / "embeddings.npy",
+                      schema="try_gallery_tmp")
     print(f"temp gallery: {tmp}\n")
 
     # --- enrol

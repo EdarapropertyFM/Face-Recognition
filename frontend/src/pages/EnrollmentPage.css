@@ -1,0 +1,250 @@
+.enrollment-page {
+  min-height: 100vh;
+  padding: 32px 16px 48px;
+  background: linear-gradient(180deg, #e7f1f5 0%, #f2f7f9 100%);
+  color: #102a43;
+}
+
+.enrollment-shell { width: min(100%, 780px); margin: 0 auto; }
+
+.enrollment-brand {
+  display: flex; align-items: center; gap: 10px; margin: 0 6px 18px; color: #008cab;
+}
+
+.enrollment-brand-mark {
+  display: grid; width: 44px; height: 44px; place-items: center;
+  border-radius: 13px; background: #008fac; color: #fff;
+}
+
+.enrollment-brand strong, .enrollment-brand small { display: block; }
+.enrollment-brand strong { font-size: 19px; letter-spacing: .05em; }
+.enrollment-brand small { margin-top: 2px; color: #607b8c; font-size: 12px; }
+
+.enrollment-card {
+  padding: 34px; border: 1px solid #d9e6ec; border-radius: 24px; background: #fff;
+  box-shadow: 0 18px 50px rgba(36, 68, 90, .10);
+}
+
+.enrollment-progress { display: flex; gap: 8px; margin-bottom: 28px; }
+.enrollment-progress span { height: 7px; flex: 1; border-radius: 99px; background: #dce7ec; }
+.enrollment-progress span.complete, .enrollment-progress span.current { background: #0098b8; }
+
+.enrollment-step-label {
+  margin: 0 0 22px; color: #607b8c; font-size: 12px; letter-spacing: .08em;
+  text-align: center; text-transform: uppercase;
+}
+
+.enrollment-card h1 { margin: 0 0 6px; color: #102a43; font-size: clamp(24px, 4vw, 30px); }
+.enrollment-subtitle { margin: 0 0 28px; color: #60798b; line-height: 1.6; }
+
+.enrollment-section-title {
+  display: flex; align-items: center; gap: 8px; margin: 26px 0 14px;
+  color: #008cab; font-size: 13px; letter-spacing: .07em; text-transform: uppercase;
+}
+
+.enrollment-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.enrollment-field { min-width: 0; margin-bottom: 17px; }
+
+.enrollment-field label, .enrollment-document-label {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 7px;
+  color: #476274; font-size: 13px; font-weight: 700;
+}
+
+.enrollment-field input, .enrollment-field select {
+  width: 100%; min-height: 50px; box-sizing: border-box; padding: 12px 14px;
+  border: 1.5px solid #d5e3ea; border-radius: 13px; outline: none; background: #fff;
+  color: #102a43; font: inherit; transition: border-color .15s, box-shadow .15s;
+}
+
+.enrollment-field select { cursor: pointer; }
+.enrollment-field select:disabled { cursor: not-allowed; background: #f4f7f9; color: #8ba0ad; }
+
+.enrollment-field input:focus, .enrollment-field select:focus {
+  border-color: #0098b8; box-shadow: 0 0 0 3px rgba(0, 152, 184, .12);
+}
+
+.enrollment-field.has-error input, .enrollment-field.has-error select,
+.enrollment-document.has-error > label { border-color: #d64545; }
+
+.enrollment-field-error { margin: 6px 0 0; color: #c93636; font-size: 12px; line-height: 1.4; }
+.enrollment-options-error {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: -4px 0 16px; padding: 11px 12px; border: 1px solid #efb5b5;
+  border-radius: 11px; background: #fff3f3; color: #b52d2d; font-size: 12px;
+}
+.enrollment-options-error button {
+  flex: 0 0 auto; padding: 6px 9px; border: 0; border-radius: 7px;
+  background: #b52d2d; color: #fff; cursor: pointer;
+}
+.enrollment-document { margin-top: 3px; }
+
+.enrollment-document > label {
+  display: flex; align-items: center; gap: 12px; padding: 15px;
+  border: 1.5px dashed #9fc7d5; border-radius: 13px; background: #f5fafc;
+  color: #008cab; cursor: pointer;
+}
+
+.enrollment-document > label > span { min-width: 0; }
+.enrollment-document strong, .enrollment-document small {
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.enrollment-document small { margin-top: 3px; color: #6c8493; font-weight: 400; }
+.enrollment-document input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
+
+.enrollment-button {
+  display: flex; width: 100%; min-height: 52px; align-items: center; justify-content: center;
+  gap: 9px; margin-top: 24px; padding: 13px 18px; border: 0; border-radius: 13px;
+  background: #008fac; color: #fff; cursor: pointer; font: inherit; font-weight: 800;
+  transition: background .15s, transform .15s;
+}
+
+.enrollment-button:hover:not(:disabled) { background: #007d99; }
+.enrollment-button:active:not(:disabled) { transform: translateY(1px); }
+.enrollment-button:disabled { cursor: not-allowed; opacity: .5; }
+.enrollment-button.secondary { border: 1.5px solid #cddde5; background: #fff; color: #29485a; }
+
+.enrollment-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.enrollment-placeholder {
+  padding: 18px; border: 1px solid #cde2eb; border-radius: 14px;
+  background: #f1f8fb; color: #426778; line-height: 1.6;
+}
+.enrollment-footer { margin-top: 18px; color: #68818f; font-size: 11px; text-align: center; }
+
+.camera-stage { padding: 20px; border-radius: 20px; background: #081b28; color: #fff; text-align: center; }
+.camera-instruction { min-height: 24px; margin-bottom: 14px; font-size: 17px; font-weight: 800; }
+.camera-viewport {
+  position: relative; width: min(100%, 390px); aspect-ratio: 3 / 4; margin: 0 auto;
+  overflow: hidden; border-radius: 28px; background: #031019;
+}
+.camera-viewport video { width: 100%; height: 100%; object-fit: cover; }
+.camera-shade { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.camera-shade::before { content: ''; position: absolute; inset: 0; background: rgba(3, 16, 25, .33); }
+.camera-shade span {
+  position: relative; width: 66%; height: 77%; border: 3px solid #00a4c4;
+  border-radius: 50%; box-shadow: 0 0 0 999px rgba(3, 16, 25, .18);
+}
+.camera-state {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 10px; background: rgba(3, 16, 25, .82); color: #d9edf5;
+}
+.camera-hold {
+  position: absolute; right: 14px; bottom: 15px; left: 14px; height: 7px;
+  overflow: hidden; border-radius: 99px; background: rgba(255, 255, 255, .18);
+}
+.camera-hold span { display: block; height: 100%; border-radius: inherit; background: #28d17c; transition: width .2s; }
+.camera-message { display: block; min-height: 22px; margin-top: 15px; color: #75e6a7; }
+.camera-message.error { color: #ff8d8d; }
+.camera-stage > small { display: block; margin-top: 5px; color: #9fc0ce; }
+.camera-retry {
+  display: inline-flex; align-items: center; gap: 7px; margin-top: 13px; padding: 9px 13px;
+  border: 1px solid rgba(255, 255, 255, .25); border-radius: 10px;
+  background: rgba(255, 255, 255, .1); color: #fff; cursor: pointer;
+}
+.capture-poses {
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-top: 16px;
+}
+.capture-pose {
+  position: relative; min-width: 0; overflow: hidden; border: 1.5px solid #d4e2e8;
+  border-radius: 13px; background: #f3f8fa; color: #66808f; text-align: center;
+}
+.capture-pose > span { display: grid; height: 82px; place-items: center; font-size: 20px; font-weight: 800; }
+.capture-pose img { display: block; width: 100%; height: 82px; object-fit: cover; }
+.capture-pose small { display: block; overflow: hidden; padding: 7px 3px; text-overflow: ellipsis; white-space: nowrap; }
+.capture-pose.current { border-color: #0098b8; box-shadow: 0 0 0 3px rgba(0, 152, 184, .1); }
+.capture-pose.done { border-color: #23a86a; }
+.capture-pose i {
+  position: absolute; top: 5px; right: 5px; display: grid; width: 21px; height: 21px;
+  place-items: center; border-radius: 50%; background: #1ca567; color: #fff;
+}
+.capture-security-note {
+  display: flex; align-items: center; gap: 8px; margin-top: 15px; padding: 11px 13px;
+  border: 1px solid #cce1e9; border-radius: 11px; background: #f1f8fb;
+  color: #397084; font-size: 12px; line-height: 1.5;
+}
+.enrollment-placeholder { display: flex; align-items: center; gap: 9px; }
+
+.enrollment-entry {
+  margin-bottom: 14px; padding: 16px; border: 1px solid #d8e5eb;
+  border-radius: 15px; background: #f9fbfc;
+}
+.enrollment-entry-header {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;
+  color: #257087; font-weight: 800;
+}
+.enrollment-entry-header span { display: flex; align-items: center; gap: 7px; }
+.enrollment-entry-header button {
+  display: grid; width: 34px; height: 34px; place-items: center; border: 0;
+  border-radius: 9px; background: #fff0f0; color: #c93636; cursor: pointer;
+}
+.enrollment-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 28px;
+  border: 1.5px dashed #cbdce4; border-radius: 15px; background: #f7fafb;
+  color: #64808f; text-align: center;
+}
+.enrollment-empty strong { margin-top: 4px; color: #365669; }
+.enrollment-empty span { font-size: 12px; }
+.enrollment-add-button {
+  display: flex; width: 100%; align-items: center; justify-content: center; gap: 7px;
+  margin-top: 14px; padding: 12px; border: 1.5px dashed #0098b8; border-radius: 12px;
+  background: #f1f9fb; color: #0086a3; cursor: pointer; font: inherit; font-weight: 800;
+}
+
+.review-section { margin-bottom: 14px; overflow: hidden; border: 1px solid #d8e5eb; border-radius: 14px; }
+.review-section > header {
+  display: flex; align-items: center; justify-content: space-between; padding: 11px 14px;
+  background: #f1f7f9; color: #31596b; font-weight: 800;
+}
+.review-section > header span, .review-section > header button { display: flex; align-items: center; gap: 7px; }
+.review-section > header button { border: 0; background: transparent; color: #008cab; cursor: pointer; font: inherit; font-size: 12px; }
+.review-section > div { padding: 13px 14px; }
+.review-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; margin: 0; }
+.review-grid div { min-width: 0; }
+.review-grid dt { margin-bottom: 3px; color: #69818f; font-size: 11px; }
+.review-grid dd { display: flex; align-items: center; gap: 5px; margin: 0; overflow-wrap: anywhere; color: #18394b; font-weight: 700; }
+.review-faces { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.review-faces img { width: 100%; aspect-ratio: 1; border-radius: 10px; object-fit: cover; transform: scaleX(-1); }
+.review-list { margin: 0; padding: 0; list-style: none; }
+.review-list li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid #e5edf1; }
+.review-list li:last-child { border-bottom: 0; }
+.review-list span, .review-none { color: #66808f; }
+.review-none { margin: 0; }
+.enrollment-consent {
+  display: flex; gap: 11px; align-items: flex-start; padding: 15px;
+  border: 1.5px solid #d2e2e9; border-radius: 13px; background: #f3f8fa;
+  color: #294b5c; font-size: 13px; line-height: 1.55; cursor: pointer;
+}
+.enrollment-consent.has-error { border-color: #d64545; }
+.enrollment-consent input { width: 20px; height: 20px; flex: 0 0 auto; margin: 1px 0 0; accent-color: #008fac; }
+.enrollment-submit-error {
+  margin-top: 12px; padding: 12px; border: 1px solid #efb5b5; border-radius: 11px;
+  background: #fff3f3; color: #b52d2d; font-size: 13px; line-height: 1.5;
+}
+
+.enrollment-success { text-align: center; }
+.success-icon {
+  display: grid; width: 82px; height: 82px; place-items: center; margin: 0 auto 18px;
+  border-radius: 50%; background: #1ca567; color: #fff;
+}
+.enrollment-success > p { max-width: 530px; margin: 10px auto 22px; color: #60798b; line-height: 1.6; }
+.success-reference {
+  padding: 17px; border: 1.5px dashed #0098b8; border-radius: 14px; background: #f1f9fb;
+}
+.success-reference small, .success-reference strong { display: block; }
+.success-reference small { color: #647f8e; }
+.success-reference strong { margin-top: 5px; color: #007f9b; font-family: ui-monospace, monospace; font-size: 25px; letter-spacing: .05em; }
+.enrollment-success .capture-security-note { justify-content: center; text-align: left; }
+.spin { animation: enrollment-spin .9s linear infinite; }
+@keyframes enrollment-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 600px) {
+  .enrollment-page { padding: 18px 10px 32px; }
+  .enrollment-card { padding: 24px 18px; border-radius: 19px; }
+  .enrollment-grid, .enrollment-actions { grid-template-columns: 1fr; gap: 0; }
+  .enrollment-actions .enrollment-button + .enrollment-button { margin-top: 12px; }
+  .camera-stage { padding: 14px; margin-inline: -8px; border-radius: 16px; }
+  .camera-viewport { width: min(100%, 330px); }
+  .capture-poses { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .review-grid { grid-template-columns: 1fr; }
+  .review-faces { grid-template-columns: repeat(5, minmax(48px, 1fr)); overflow-x: auto; }
+  .review-list li { flex-direction: column; gap: 3px; }
+}

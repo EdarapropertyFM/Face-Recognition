@@ -7,18 +7,18 @@ from tests.conftest import near, unit
 MV = "buffalo_l/w600k_r50"
 
 
-def make_gallery(config) -> Gallery:
-    return Gallery(config, model_version=MV)
+def make_gallery(config, schema) -> Gallery:
+    return Gallery(config, model_version=MV, schema=schema)
 
 
-def test_empty_gallery_search_returns_nothing(config):
-    g = make_gallery(config)
+def test_empty_gallery_search_returns_nothing(config, gallery_schema):
+    g = make_gallery(config, gallery_schema)
     assert len(g) == 0
     assert g.search(unit(1)) == []
 
 
-def test_add_and_search_round_trip(config):
-    g = make_gallery(config)
+def test_add_and_search_round_trip(config, gallery_schema):
+    g = make_gallery(config, gallery_schema)
     a = unit(1)
     pid = g.add_person("Alice")
     g.add_templates(pid, a[None, :], [100.0], ["a.jpg"])
@@ -27,9 +27,9 @@ def test_add_and_search_round_trip(config):
     assert res[0].similarity > 0.95
 
 
-def test_search_collapses_to_best_per_person(config):
+def test_search_collapses_to_best_per_person(config, gallery_schema):
     """Runner-up must be a different PERSON, not another photo of the best."""
-    g = make_gallery(config)
+    g = make_gallery(config, gallery_schema)
     a, b = unit(1), unit(2)
     pa = g.add_person("Alice")
     pb = g.add_person("Bob")
@@ -47,8 +47,8 @@ def test_search_collapses_to_best_per_person(config):
     assert res[0].similarity == pytest.approx(float(sims.max()), abs=1e-6)
 
 
-def test_top_k_applies_after_collapse(config):
-    g = make_gallery(config)
+def test_top_k_applies_after_collapse(config, gallery_schema):
+    g = make_gallery(config, gallery_schema)
     pids = []
     for i in range(4):
         pid = g.add_person(f"P{i}")
@@ -60,11 +60,11 @@ def test_top_k_applies_after_collapse(config):
     assert res[0].person_id == pids[0]
 
 
-def test_delete_person_removes_vectors_and_reindexes(config):
+def test_delete_person_removes_vectors_and_reindexes(config, gallery_schema):
     """The critical Phase 3 test: after delete, the deleted person must not
     match, survivors must still match, and DB row_index must line up with
     embeddings.npy row for row."""
-    g = make_gallery(config)
+    g = make_gallery(config, gallery_schema)
     a, b, c = unit(1), unit(2), unit(3)
     pa = g.add_person("Alice")
     pb = g.add_person("Bob")
@@ -93,7 +93,8 @@ def test_delete_person_removes_vectors_and_reindexes(config):
     # row_index in the DB is contiguous 0..N-1 and each row points at the
     # right person's vector.
     rows = g.conn.execute(
-        "SELECT row_index, person_id FROM template ORDER BY row_index").fetchall()
+        f"SELECT row_index, person_id FROM {gallery_schema}.template "
+        f"ORDER BY row_index").fetchall()
     assert [r["row_index"] for r in rows] == [0, 1, 2, 3]
     for r in rows:
         v = g.embeddings[r["row_index"]]
@@ -102,14 +103,14 @@ def test_delete_person_removes_vectors_and_reindexes(config):
 
     # State on disk matches memory: a fresh Gallery reloads identically.
     g.close()
-    g2 = Gallery(config, model_version=MV)
+    g2 = Gallery(config, model_version=MV, schema=gallery_schema)
     assert len(g2) == 4
     assert np.array_equal(g2.embeddings, g.embeddings)
     assert all(r.person_id != pb for r in g2.search(b))
 
 
-def test_delete_last_person_leaves_empty_gallery(config):
-    g = make_gallery(config)
+def test_delete_last_person_leaves_empty_gallery(config, gallery_schema):
+    g = make_gallery(config, gallery_schema)
     pid = g.add_person("Only")
     g.add_templates(pid, unit(1)[None, :], [1.0], ["x"])
     g.delete_person(pid)
@@ -118,31 +119,33 @@ def test_delete_last_person_leaves_empty_gallery(config):
     # Can add again afterwards; row_index restarts at 0.
     pid2 = g.add_person("Next")
     g.add_templates(pid2, unit(2)[None, :], [1.0], ["y"])
-    assert g.conn.execute("SELECT row_index FROM template").fetchone()[0] == 0
+    assert g.conn.execute(
+        f"SELECT row_index FROM {gallery_schema}.template").fetchone()["row_index"] == 0
 
 
-def test_delete_unknown_person_raises(config):
-    g = make_gallery(config)
+def test_delete_unknown_person_raises(config, gallery_schema):
+    g = make_gallery(config, gallery_schema)
     with pytest.raises(KeyError):
         g.delete_person("nope")
 
 
-def test_add_templates_rejects_unnormalised(config):
-    g = make_gallery(config)
+def test_add_templates_rejects_unnormalised(config, gallery_schema):
+    g = make_gallery(config, gallery_schema)
     pid = g.add_person("X")
     with pytest.raises(ValueError, match="L2-normalised"):
         g.add_templates(pid, (unit(1) * 3.0)[None, :], [1.0], ["x"])
 
 
-def test_add_templates_rejects_unknown_person(config):
-    g = make_gallery(config)
+def test_add_templates_rejects_unknown_person(config, gallery_schema):
+    g = make_gallery(config, gallery_schema)
     with pytest.raises(KeyError):
         g.add_templates("ghost", unit(1)[None, :], [1.0], ["x"])
 
 
-def test_model_version_stamped_on_templates(config):
-    g = make_gallery(config)
+def test_model_version_stamped_on_templates(config, gallery_schema):
+    g = make_gallery(config, gallery_schema)
     pid = g.add_person("X")
     g.add_templates(pid, unit(1)[None, :], [1.0], ["x"])
-    mv = g.conn.execute("SELECT model_version FROM template").fetchone()[0]
+    mv = g.conn.execute(
+        f"SELECT model_version FROM {gallery_schema}.template").fetchone()["model_version"]
     assert mv == MV
