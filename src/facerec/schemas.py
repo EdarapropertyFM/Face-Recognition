@@ -139,6 +139,22 @@ class DVRChannelsOut(BaseModel):
     channels: list[ChannelOut]
 
 
+class CameraProbeIn(BaseModel):
+    source: str = Field(min_length=8, max_length=2048, pattern=r"^rtsps?://")
+    detect: bool = False
+
+
+class CameraProbeOut(BaseModel):
+    model_version: str
+    ok: bool
+    width: int = 0
+    height: int = 0
+    fps: float = 0.0
+    seconds: float = 0.0
+    error: str | None = None
+    faces: int | None = None
+
+
 class FaceOut(BaseModel):
     bbox: list[int]                         # x1, y1, x2, y2
     det_score: float

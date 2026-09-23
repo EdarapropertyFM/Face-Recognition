@@ -34,14 +34,14 @@ from api.streams import CameraHub, JpegWorker, mjpeg_chunk  # noqa: E402
 from facerec import DetectedFace, FaceEngine, load_config  # noqa: E402
 from facerec.config import Config  # noqa: E402
 from facerec.dvr import (  # noqa: E402
-    URL_TEMPLATES, DVRConfig, clear_dvr, load_dvr, probe_channel, resolve_source, save_dvr,
+    URL_TEMPLATES, DVRConfig, clear_dvr, load_dvr, probe_channel, probe_rtsp, resolve_source, save_dvr,
 )
 from facerec.enroll import EnrollCapture, SelfCheck, pairwise_self_check  # noqa: E402
 from facerec.gallery import Gallery  # noqa: E402
 from facerec.live import LiveRecognizer  # noqa: E402
 from facerec.matcher import decide  # noqa: E402
 from facerec.schemas import (  # noqa: E402
-    ChannelOut, DVRChannelsOut, DVRIn, DVROut, EnrollResponse, FaceOut, HealthResponse,
+    CameraProbeIn, CameraProbeOut, ChannelOut, DVRChannelsOut, DVRIn, DVROut, EnrollResponse, FaceOut, HealthResponse,
     PairwiseSimilarity, PersonCreate, PersonCreateResponse, PersonListResponse, PersonOut,
     QualityOut, RecognizeBase64Request, RecognizeResponse, RejectedImage, WebcamEnrollStatus,
 )
@@ -569,6 +569,18 @@ def webcam_cancel(person_id: str, request: Request):
 
 
 # ------------------------------------------------------------------- DVR
+
+@app.post("/camera/probe", response_model=CameraProbeOut,
+          summary="Test one RTSP source without persisting or returning its credentials")
+def camera_probe(body: CameraProbeIn, request: Request):
+    s = fr(request)
+    probe, frame = probe_rtsp(body.source)
+    if probe.ok and body.detect and frame is not None:
+        with s.lock:
+            probe.faces = len(s.engine.detect_and_embed(frame))
+    return CameraProbeOut(model_version=s.model_version, ok=probe.ok, width=probe.width,
+                          height=probe.height, fps=probe.fps, seconds=probe.seconds,
+                          error=probe.error, faces=probe.faces)
 
 def _dvr_out(s: AppState) -> DVROut:
     d = s.dvr
