@@ -32,4 +32,9 @@ export class CreateEnrollmentDto {
   @IsArray()
   @IsOptional()
   cars?: Record<string, unknown>[];
+
+  /** Returned by POST /enrollments/face-capture when the photos were taken. */
+  @IsString()
+  @IsOptional()
+  aiPersonId?: string;
 }

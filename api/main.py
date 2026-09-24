@@ -13,6 +13,7 @@ import base64
 from concurrent.futures import ThreadPoolExecutor
 import binascii
 import logging
+import os
 import sys
 import threading
 import time
@@ -29,7 +30,7 @@ from fastapi.responses import HTMLResponse, Response, StreamingResponse
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from api.pages import DVR_HTML, ENROLL_HTML, LIVE_HTML  # noqa: E402
+from api.pages import DVR_HTML, ENROLL_HTML, GALLERY_HTML, LIVE_HTML  # noqa: E402
 from api.streams import CameraHub, JpegWorker, mjpeg_chunk  # noqa: E402
 from facerec import DetectedFace, FaceEngine, load_config  # noqa: E402
 from facerec.config import Config  # noqa: E402
@@ -42,7 +43,7 @@ from facerec.live import LiveRecognizer  # noqa: E402
 from facerec.matcher import decide  # noqa: E402
 from facerec.schemas import (  # noqa: E402
     CameraProbeIn, CameraProbeOut, ChannelOut, DVRChannelsOut, DVRIn, DVROut, EnrollResponse, FaceOut, HealthResponse,
-    PairwiseSimilarity, PersonCreate, PersonCreateResponse, PersonListResponse, PersonOut,
+    PairwiseSimilarity, PersonCreate, PersonCreateResponse, PersonListResponse, PersonOut, PersonUpdate,
     QualityOut, RecognizeBase64Request, RecognizeResponse, RejectedImage, WebcamEnrollStatus,
 )
 
@@ -306,6 +307,20 @@ def create_person(body: PersonCreate, request: Request):
     return PersonCreateResponse(model_version=s.model_version, person_id=pid)
 
 
+@app.patch("/persons/{person_id}", response_model=PersonOut,
+           summary="Rename or re-role a person (templates untouched)")
+def update_person(person_id: str, body: PersonUpdate, request: Request):
+    s = fr(request)
+    with s.lock:
+        try:
+            p = s.gallery.update_person(person_id, body.name, body.role)
+        except KeyError:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "no such person")
+    log.info("updated person %s -> name=%r role=%r", person_id, body.name, body.role)
+    return PersonOut(person_id=p.id, name=p.name, role=p.role, status=p.status,
+                     created_at=p.created_at, template_count=p.template_count)
+
+
 @app.delete("/persons/{person_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_person(person_id: str, request: Request):
     s = fr(request)
@@ -401,6 +416,46 @@ def recognize_base64(body: RecognizeBase64Request, request: Request):
     except (binascii.Error, ValueError):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "image_b64 is not valid base64")
     return recognize_frame(s, decode_image(data, "image_b64"))
+
+
+# ------------------------------------------------------------------ gallery
+
+def _person_dir(s: AppState, person_id: str) -> Path:
+    return s.config.data_dir / "enrollments" / person_id
+
+
+@app.get("/gallery", response_class=HTMLResponse,
+         summary="Browser page: everyone in the gallery with their enrolment photos")
+def gallery_page():
+    return GALLERY_HTML
+
+
+@app.get("/persons/{person_id}/images", summary="Filenames of this person's enrolment photos")
+def person_images(person_id: str, request: Request):
+    s = fr(request)
+    with s.lock:
+        if s.gallery.get_person(person_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "no such person")
+    folder = _person_dir(s, person_id)
+    names = sorted(p.name for p in folder.iterdir()
+                   if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png"})         if folder.is_dir() else []
+    return {"person_id": person_id, "images": names}
+
+
+@app.get("/persons/{person_id}/images/{filename}", response_class=Response,
+         responses={200: {"content": {"image/jpeg": {}}}},
+         summary="One enrolment photo")
+def person_image(person_id: str, filename: str, request: Request):
+    s = fr(request)
+    # Resolve and confine to the person's own folder: a filename must never be
+    # able to walk out of it and serve an arbitrary file from the disk.
+    folder = _person_dir(s, person_id).resolve()
+    target = (folder / filename).resolve()
+    if not str(target).startswith(str(folder) + os.sep) or not target.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such image")
+    media = "image/png" if target.suffix.lower() == ".png" else "image/jpeg"
+    return Response(content=target.read_bytes(), media_type=media,
+                    headers={"Cache-Control": "no-store"})
 
 
 # ----------------------------------------------------------------- live view

@@ -6,6 +6,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Public } from '../auth/auth.decorators';
 import { Roles } from '../auth/auth.decorators';
 import { CheckFaceFrameDto } from './dto/check-face-frame.dto';
+import { CaptureFacesDto } from './dto/capture-faces.dto';
 import { RateLimit } from '../common/rate-limit.decorator';
 import { RateLimitGuard } from '../common/rate-limit.guard';
 
@@ -33,7 +34,29 @@ export class EnrollmentsController {
   @UseGuards(RateLimitGuard)
   @RateLimit({ limit: 80, windowMs: 60 * 1000 })
   checkFace(@Body() body: CheckFaceFrameDto) {
-    return this.enrollmentsService.checkFaceFrame(body.image_b64);
+    return this.enrollmentsService.checkFaceFrame(body.image_b64, body.aiPersonId);
+  }
+
+  /**
+   * Enrolls the five captured photos into the AI gallery straight away and
+   * returns the id for the draft to carry, so the person is recognizable
+   * before the rest of the form is filled in.
+   */
+  @Post('face-capture')
+  @Public()
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ limit: 5, windowMs: 15 * 60 * 1000 })
+  captureFaces(@Body() body: CaptureFacesDto) {
+    return this.enrollmentsService.captureFaces(body.images, body.name);
+  }
+
+  /** Discards an unsubmitted capture so the applicant can retake their photos. */
+  @Delete('face-capture/:aiPersonId')
+  @Public()
+  @UseGuards(RateLimitGuard)
+  @RateLimit({ limit: 10, windowMs: 15 * 60 * 1000 })
+  releaseCapture(@Param('aiPersonId') aiPersonId: string) {
+    return this.enrollmentsService.releaseCapture(aiPersonId);
   }
 
   @Get()

@@ -188,6 +188,27 @@ class Gallery:
             f"FROM {self._t('person')} p ORDER BY p.created_at").fetchall()
         return [Person(**r) for r in rows]
 
+    def update_person(self, person_id: str, name: str | None = None,
+                      role: str | None = None) -> Person:
+        """Rename or re-role an existing person. Used when a provisional
+        capture is approved and becomes a named resident; the templates and
+        their row_index are untouched."""
+        if self.get_person(person_id) is None:
+            raise KeyError(f"no such person: {person_id}")
+        sets, params = [], []
+        if name is not None:
+            sets.append("name = %s")
+            params.append(name)
+        if role is not None:
+            sets.append("role = %s")
+            params.append(role)
+        if sets:
+            params.append(person_id)
+            self.conn.execute(
+                f"UPDATE {self._t('person')} SET {', '.join(sets)} WHERE id = %s", params)
+            self._rebuild_row_owner()          # _row_owner caches the name
+        return self.get_person(person_id)
+
     def add_templates(self, person_id: str, embeddings: np.ndarray,
                       quality: list[float], image_paths: list[str]) -> None:
         embeddings = np.asarray(embeddings, dtype=np.float32)

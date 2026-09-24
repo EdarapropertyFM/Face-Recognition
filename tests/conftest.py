@@ -7,7 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from facerec.config import Config  # noqa: E402
+from facerec.config import Config, load_config  # noqa: E402
 
 
 def unit(seed: int, dim: int = 512) -> np.ndarray:
@@ -24,9 +24,11 @@ def near(base: np.ndarray, seed: int, noise: float = 0.3) -> np.ndarray:
 
 @pytest.fixture
 def config(tmp_path) -> Config:
-    """Config pointing at a temp data dir. Gallery tests additionally get
-    their own PostgreSQL schema via the `gallery_schema` fixture."""
-    return Config(data_dir=tmp_path)
+    """Temp data dir, but the REAL database settings from config.yaml, so the
+    tests reach the same PostgreSQL the app uses (the port is not always the
+    default). Gallery tests additionally get their own throwaway schema via
+    the `gallery_schema` fixture, so they never touch real rows."""
+    return Config(data_dir=tmp_path, database=load_config().database)
 
 
 def postgres_available(config: Config) -> bool:

@@ -16,8 +16,8 @@ import './EnrollmentPage.css';
 export default function EnrollmentPage() {
   const { buildings, loading: buildingsLoading, error: buildingsError, reload: reloadBuildings } = useBuildingOptions();
   const {
-    draft, errors, identityDocument, faceCaptures, step, updateField, updateBuilding,
-    setIdentityDocument, updateFaceCaptures, setFamily, setCars, clearSavedDraft,
+    draft, errors, identityDocument, faceCaptures, aiPersonId, step, updateField, updateBuilding,
+    setIdentityDocument, updateFaceCaptures, setAiPersonId, setFamily, setCars, clearSavedDraft,
     goToStep, validateResidence,
   } = useEnrollmentDraft();
   const [submitting, setSubmitting] = useState(false);
@@ -34,6 +34,10 @@ export default function EnrollmentPage() {
   const submitEnrollment = async () => {
     if (!identityDocument || faceCaptures.length !== 5) {
       setSubmitError('Your ID card and all five face photos are required. Go back and capture them again.');
+      return;
+    }
+    if (!aiPersonId) {
+      setSubmitError('The face photos were not added to the recognition gallery. Go back and retake them.');
       return;
     }
     setSubmitting(true);
@@ -53,6 +57,7 @@ export default function EnrollmentPage() {
         },
         family: draft.family.map(({ id: _id, ...member }) => member),
         cars: draft.cars.map(({ id: _id, ...vehicle }) => vehicle),
+        aiPersonId,
       };
       const response = await apiFetch('/enrollments/self-service', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
@@ -93,6 +98,7 @@ export default function EnrollmentPage() {
             />
           ) : step === 2 ? (
             <FaceCaptureStep
+              onAiPersonId={setAiPersonId}
               initialCaptures={faceCaptures}
               onBack={() => goToStep(1)}
               onComplete={() => goToStep(3)}

@@ -2,12 +2,17 @@ import { ArrowLeft, ArrowRight, Camera, Check, RefreshCw, ShieldCheck, VideoOff 
 import EnrollmentProgress from './EnrollmentProgress';
 import { FACE_POSES, useFaceCapture } from '../../hooks/useFaceCapture';
 
-export default function FaceCaptureStep({ initialCaptures, onBack, onComplete, onCapturesChange }) {
+export default function FaceCaptureStep({ initialCaptures, onBack, onComplete, onCapturesChange, onAiPersonId }) {
   const {
     videoRef, cameraState, captures, poseIndex, message, error,
     holdProgress, currentPose, startCamera, restartCapture,
-  } = useFaceCapture({ initialCaptures, onCapturesChange });
+  } = useFaceCapture({ initialCaptures, onCapturesChange, onAiPersonId });
+  // Only 'complete' means the face reached the gallery. 'enrolling' and
+  // 'enroll-failed' must not let the applicant continue: without an AI person
+  // the registration cannot be recognized later.
   const complete = cameraState === 'complete';
+  const enrolling = cameraState === 'enrolling';
+  const duplicate = cameraState === 'duplicate';
 
   return (
     <section className="enrollment-card face-capture-step" aria-labelledby="face-capture-title">
@@ -25,8 +30,15 @@ export default function FaceCaptureStep({ initialCaptures, onBack, onComplete, o
           <div className="camera-shade" aria-hidden="true"><span /></div>
           {cameraState !== 'active' ? (
             <div className="camera-state">
-              {cameraState === 'starting' ? <RefreshCw className="spin" size={32} /> : complete ? <Check size={38} /> : <VideoOff size={34} />}
-              <span>{complete ? 'Five photos captured' : cameraState === 'starting' ? 'Starting camera…' : 'Camera is off'}</span>
+              {cameraState === 'starting' || enrolling
+                ? <RefreshCw className="spin" size={32} />
+                : complete ? <Check size={38} /> : <VideoOff size={34} />}
+              <span>
+                {complete ? 'Five photos enrolled'
+                  : enrolling ? 'Adding to the gallery…'
+                  : duplicate ? 'Already registered'
+                  : cameraState === 'starting' ? 'Starting camera…' : 'Camera is off'}
+              </span>
             </div>
           ) : null}
           {cameraState === 'active' && holdProgress > 0 ? (
@@ -54,7 +66,12 @@ export default function FaceCaptureStep({ initialCaptures, onBack, onComplete, o
         })}
       </div>
 
-      <div className="capture-security-note"><ShieldCheck size={17} /> Validation only — enrollment remains pending until admin approval.</div>
+      <div className="capture-security-note">
+        <ShieldCheck size={17} />
+        {complete
+          ? 'Face added to the recognition gallery. The registration itself still needs admin approval.'
+          : 'The five photos are added to the recognition gallery as soon as they are captured.'}
+      </div>
 
       <div className="enrollment-actions">
         <button className="enrollment-button secondary" type="button" onClick={onBack}>
@@ -65,8 +82,11 @@ export default function FaceCaptureStep({ initialCaptures, onBack, onComplete, o
             Continue <ArrowRight size={18} />
           </button>
         ) : (
-          <button className="enrollment-button secondary" type="button" onClick={restartCapture} disabled={!captures.length}>
-            <RefreshCw size={18} /> Start over
+          <button
+            className="enrollment-button secondary" type="button" onClick={restartCapture}
+            disabled={enrolling || (!captures.length && !duplicate)}
+          >
+            <RefreshCw size={18} /> {duplicate ? 'Try another person' : 'Start over'}
           </button>
         )}
       </div>

@@ -2,6 +2,9 @@ import { BadGatewayException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Face } from '../faces/entities/face.entity';
+import { AiEnrollment, enrollmentFailure } from './enrollment-result';
+
+export type { AiEnrollment } from './enrollment-result';
 
 @Injectable()
 export class AiGatewayService {
@@ -61,12 +64,56 @@ export class AiGatewayService {
         const contentType = header.match(/^data:(image\/[^;]+);base64$/)?.[1] ?? 'image/jpeg';
         form.append('files', new Blob([Buffer.from(encoded, 'base64')], { type: contentType }), `enrollment-${index + 1}.jpg`);
       });
-      const enrollment = await this.request(`/persons/${personId}/enroll`, { method: 'POST', body: form }, 60000);
+      const enrollment = await this.request(`/persons/${personId}/enroll`, { method: 'POST', body: form }, 60000) as AiEnrollment;
+
+      // The AI answers 200 even when it rejected every photo, so an unchecked
+      // response leaves an AI person with zero templates: the resident looks
+      // approved and synced but can never be recognized. Verify the templates.
+      this.assertEnrolled(enrollment, images.length);
       return { personId, enrollment };
     } catch (error) {
       if (personId) await this.deletePerson(personId).catch(() => undefined);
       throw error;
     }
+  }
+
+  /** Reject an enrollment that produced too few templates, naming the reasons. */
+  private assertEnrolled(enrollment: AiEnrollment, sent: number) {
+    const failure = enrollmentFailure(enrollment, sent);
+    if (failure) throw new BadGatewayException(failure);
+  }
+
+  /**
+   * The gallery match for a single frame, or null if nobody is confirmed.
+   * Used to stop a repeat registrant at capture time instead of letting them
+   * fill in four more steps first.
+   */
+  async identify(image_b64: string) {
+    const result = await this.recognize(image_b64) as {
+      faces?: Array<{ decision?: string; person_id?: string; name?: string; similarity?: number }>;
+    };
+    const hit = result.faces?.find((face) => face.decision === 'confirmed');
+    return hit ? { personId: hit.person_id ?? null, name: hit.name ?? null, similarity: hit.similarity ?? 0 } : null;
+  }
+
+  /**
+   * Rename / re-role an existing gallery person, leaving the templates alone.
+   * Approval uses it to turn the anonymous 'provisional' capture into the
+   * named resident, so the gallery does not keep showing them as pending.
+   */
+  updatePerson(personId: string, name: string, role: string) {
+    return this.request(`/persons/${personId}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, role }),
+    });
+  }
+
+  /** Every person in the AI gallery, with the role they were created under. */
+  async listPersons() {
+    const body = await this.persons() as {
+      persons?: Array<{ person_id: string; name: string; role: string; created_at: string; template_count: number }>;
+    };
+    return body.persons ?? [];
   }
 
   async deletePerson(personId: string) {

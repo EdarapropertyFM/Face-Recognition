@@ -172,3 +172,59 @@ $("probe").onclick = async () => {
 };
 refresh();
 </script>"""
+
+GALLERY_HTML = """<!doctype html><title>Face gallery</title>""" + _STYLE + """
+<style>
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;padding:12px}
+.person{background:#1b1b1b;border:1px solid #333;border-radius:8px;padding:10px}
+.person h3{margin:0 0 2px;font-size:15px}
+.person .meta{font-size:12px;opacity:.65;margin-bottom:8px}
+.shots{display:flex;gap:6px;flex-wrap:wrap}
+.shots img{width:88px;height:88px;object-fit:cover;border-radius:5px;background:#000;cursor:zoom-in;max-width:none}
+.tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:9px;background:#333;margin-left:6px}
+.tag.prov{background:#7a5a10;color:#ffd98a}
+.none{font-size:12px;opacity:.5;padding:6px 0}
+dialog{border:0;background:#000;padding:0;max-width:96vw}
+dialog img{max-width:92vw;max-height:88vh}
+dialog form{position:absolute;top:8px;right:8px}
+</style>
+<header><b>Face gallery</b><span id="count"></span>
+<a href="/live">live view</a><a href="/dvr/setup">DVR setup</a><a href="/docs">API docs</a></header>
+<div id="status">Loading…</div>
+<div class="grid" id="grid"></div>
+<dialog id="lightbox"><form method="dialog"><button class="plain">Close</button></form><img id="big" alt=""></dialog>
+<script>
+const $ = id => document.getElementById(id);
+function zoom(src) { $("big").src = src; $("lightbox").showModal(); }
+(async () => {
+  try {
+    const body = await (await fetch("/persons")).json();
+    const people = body.persons;
+    $("count").textContent = `${people.length} person(s) · model ${body.model_version}`;
+    $("status").textContent = people.length ? '' : 'The gallery is empty.';
+    for (const p of people) {
+      const card = document.createElement("div");
+      card.className = "person";
+      const provisional = p.role === "provisional";
+      card.innerHTML = `<h3>${p.name}` +
+        `<span class="tag${provisional ? ' prov' : ''}">${p.role}</span></h3>` +
+        `<div class="meta">${p.template_count} template(s) · enrolled ${p.created_at.slice(0, 10)}` +
+        `<br>${p.person_id}</div><div class="shots"></div>`;
+      $("grid").appendChild(card);
+      const shots = card.querySelector(".shots");
+      const imgs = await (await fetch(`/persons/${p.person_id}/images`)).json();
+      if (!imgs.images.length) {
+        shots.innerHTML = '<div class="none">No stored photos (enrolled before images were kept, or already purged).</div>';
+        continue;
+      }
+      for (const name of imgs.images) {
+        const url = `/persons/${p.person_id}/images/${encodeURIComponent(name)}`;
+        const img = document.createElement("img");
+        img.src = url; img.alt = `${p.name} ${name}`; img.title = name;
+        img.onclick = () => zoom(url);
+        shots.appendChild(img);
+      }
+    }
+  } catch (e) { $("status").textContent = 'Could not load the gallery: ' + e.message; $("status").className = 'bad'; }
+})();
+</script>"""

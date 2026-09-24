@@ -158,3 +158,36 @@ def test_dvr_config_endpoints(client):
 
     assert client.delete("/dvr").status_code == 204
     assert client.get("/dvr").json()["configured"] is False
+
+
+def test_person_update_and_images(client, tmp_path_factory):
+    """Approval renames a provisional capture into a named resident, and the
+    gallery page can list and serve that person's enrolment photos."""
+    pid = client.post("/persons", json={"name": "Pending registration",
+                                        "role": "provisional"}).json()["person_id"]
+
+    r = client.patch(f"/persons/{pid}", json={"name": "Real Resident", "role": "resident"})
+    assert r.status_code == 200
+    assert r.json()["name"] == "Real Resident" and r.json()["role"] == "resident"
+    assert client.patch("/persons/ghost", json={"name": "x"}).status_code == 404
+
+    # The rename must reach search results too, not just the person row.
+    client.post(f"/persons/{pid}/enroll",
+                files=[("files", ("1.jpeg", ME_1.read_bytes(), "image/jpeg"))])
+    face = client.post("/recognize/base64",
+                       json={"image_b64": base64.b64encode(ME_1.read_bytes()).decode()}
+                       ).json()["faces"][0]
+    assert face["name"] == "Real Resident"
+
+    r = client.get(f"/persons/{pid}/images")
+    assert r.status_code == 200 and len(r.json()["images"]) == 1
+    name = r.json()["images"][0]
+    img = client.get(f"/persons/{pid}/images/{name}")
+    assert img.status_code == 200 and img.headers["content-type"] == "image/jpeg"
+
+    # A filename must not be able to walk out of the person's own folder.
+    assert client.get(f"/persons/{pid}/images/..%2f..%2fconfig.yaml").status_code == 404
+    assert client.get(f"/persons/{pid}/images/nope.jpg").status_code == 404
+    assert client.get("/persons/ghost/images").status_code == 404
+
+    client.delete(f"/persons/{pid}")

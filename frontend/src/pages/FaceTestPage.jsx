@@ -40,8 +40,10 @@ export default function FaceTestPage() {
     setBusy(true); setError('');
     const side = Math.min(video.videoWidth, video.videoHeight);
     const canvas = document.createElement('canvas');
-    canvas.width = canvas.height = 480;
-    canvas.getContext('2d').drawImage(video, (video.videoWidth - side) / 2, (video.videoHeight - side) / 2, side, side, 0, 0, 480, 480);
+    // Match the enrollment capture: never upscale, cap at 640 (see useFaceCapture).
+    const size = Math.min(640, Math.round(side));
+    canvas.width = canvas.height = size;
+    canvas.getContext('2d').drawImage(video, (video.videoWidth - side) / 2, (video.videoHeight - side) / 2, side, side, 0, 0, size, size);
     try {
       const res = await apiFetch('/ai/recognize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image_b64: canvas.toDataURL('image/jpeg', .9) }) });
       const body = await res.json().catch(() => ({}));

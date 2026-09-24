@@ -18,6 +18,9 @@ export function useEnrollmentDraft() {
   const [errors, setErrors] = useState({});
   const [identityDocument, setIdentityDocumentState] = useState(null);
   const [faceCaptures, setFaceCaptures] = useState([]);
+  // The AI gallery person created when the five photos were captured. Carried
+  // through to submit so the enrollment claims it instead of enrolling again.
+  const [aiPersonId, setAiPersonId] = useState(null);
 
   useEffect(() => {
     window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({ ...draft, idDocName: '' }));
@@ -69,13 +72,14 @@ export function useEnrollmentDraft() {
     window.localStorage.removeItem(DRAFT_STORAGE_KEY);
     setDraft({ ...EMPTY_ENROLLMENT_DRAFT, family: [], cars: [] });
     setFaceCaptures([]);
+    setAiPersonId(null);
     setIdentityDocumentState(null);
     setErrors({});
   }, []);
 
   return {
-    draft, errors, identityDocument, faceCaptures, step, updateField, updateBuilding,
-    setIdentityDocument, updateFaceCaptures, setFamily, setCars, clearSavedDraft,
+    draft, errors, identityDocument, faceCaptures, aiPersonId, step, updateField, updateBuilding,
+    setIdentityDocument, updateFaceCaptures, setAiPersonId, setFamily, setCars, clearSavedDraft,
     goToStep: setStep, validateResidence,
   };
 }

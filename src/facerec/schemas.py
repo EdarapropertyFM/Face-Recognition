@@ -43,6 +43,11 @@ class PersonCreate(BaseModel):
     role: str = Field(default="resident", min_length=1, max_length=50)
 
 
+class PersonUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    role: str | None = Field(default=None, min_length=1, max_length=50)
+
+
 class PersonCreateResponse(BaseModel):
     model_version: str
     person_id: str
