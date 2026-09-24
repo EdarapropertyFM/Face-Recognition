@@ -87,15 +87,33 @@ class Gallery:
 
         # autocommit: each statement or explicit transaction() block commits on
         # its own, matching how the old sqlite connection behaved.
-        self.conn = psycopg.connect(config.database.conninfo(), autocommit=True,
-                                    row_factory=dict_row)
+        self._conninfo = config.database.conninfo()
+        self.conn = self._connect()
         self.conn.execute(SCHEMA.format(schema=self.schema))
 
         self.embeddings = self._load_embeddings()
         # row_index -> (person_id, name), rebuilt whenever templates change.
         self._row_owner: list[tuple[str, str]] = []
+        self._person_count: int | None = None
         self._rebuild_row_owner()
         self._stamp = self._disk_stamp()
+
+    def _connect(self) -> psycopg.Connection:
+        return psycopg.connect(self._conninfo, autocommit=True, row_factory=dict_row)
+
+    def reconnect(self) -> None:
+        """Re-open a dropped connection.
+
+        PostgreSQL closes idle connections, and a restart of the database ends
+        every one of them. A long-running consumer (the live view runs for
+        hours) must recover rather than take the whole stream down with it.
+        """
+        try:
+            self.conn.close()
+        except Exception:
+            pass
+        self.conn = self._connect()
+        self.conn.execute(SCHEMA.format(schema=self.schema))
 
     def _t(self, table: str) -> str:
         return f"{self.schema}.{table}"
@@ -127,6 +145,17 @@ class Gallery:
             # keep the previous state and try again on the next call.
             self.embeddings, self._row_owner = old_embeddings, old_owner
             return False
+        except psycopg.OperationalError:
+            # The database dropped the connection (idle timeout, or a restart).
+            # Reconnect and retry once; failing that, keep serving the gallery
+            # already in memory rather than killing a running live view.
+            try:
+                self.reconnect()
+                self.embeddings = self._load_embeddings()
+                self._rebuild_row_owner()
+            except Exception:
+                self.embeddings, self._row_owner = old_embeddings, old_owner
+                return False
         self._stamp = stamp
         return True
 
@@ -160,6 +189,7 @@ class Gallery:
                 f"{n} embedding rows, or row_index not contiguous. "
                 "Restore from backup or rebuild the gallery.")
         self._row_owner = [(r["person_id"], r["name"]) for r in rows]
+        self._person_count = None          # recounted lazily; people may hold no templates
 
     def close(self) -> None:
         self.conn.close()
@@ -168,6 +198,7 @@ class Gallery:
 
     def add_person(self, name: str, role: str = "resident") -> str:
         person_id = str(uuid.uuid4())
+        self._person_count = None
         self.conn.execute(
             f"INSERT INTO {self._t('person')} (id, name, role, created_at, status) "
             f"VALUES (%s, %s, %s, %s, 'active')",
@@ -260,6 +291,7 @@ class Gallery:
         # old row_index -> new row_index for every surviving template
         remap = {old: new for new, old in enumerate(keep)}
 
+        self._person_count = None
         with self.conn.transaction():
             self.conn.execute(f"DELETE FROM {self._t('template')} WHERE person_id = %s",
                               (person_id,))
@@ -284,6 +316,18 @@ class Gallery:
 
     @property
     def person_count(self) -> int:
+        """Number of people in the gallery.
+
+        Cached: the live view draws this in its HUD on every frame, so querying
+        here meant one SELECT per frame per stream — hundreds a second with a
+        few cameras open, and the whole view died when the connection dropped.
+        The count only changes when this Gallery adds, deletes or reloads.
+        """
+        if self._person_count is None:
+            self._person_count = self._count_persons()
+        return self._person_count
+
+    def _count_persons(self) -> int:
         return self.conn.execute(f"SELECT COUNT(*) AS n FROM {self._t('person')}").fetchone()["n"]
 
     def search(self, query: np.ndarray, top_k: int = 5) -> list[Match]:

@@ -7,13 +7,14 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
 import { enrollmentNote } from '../ai-gateway/enrollment-result';
 import {
   PROVISIONAL_NAME, PROVISIONAL_ROLE, PURGE_INTERVAL_MS,
   abandonedCaptures, canReuseCapture, isDuplicateMatch,
 } from './capture-lifecycle';
+import { HouseholdMemberInput, householdProblems, normalizeMember } from './household-rules';
 
 import { Face } from '../faces/entities/face.entity';
 import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
@@ -63,7 +64,8 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
       owner: storedOwner,
       schema: createDto.schema || 'stmc.enroll.v1',
       submittedAt: createDto.submittedAt || new Date().toISOString(),
-      family: createDto.family ?? [],
+      // Drops a staff phone number and any under-16 National ID before storage.
+      family: (createDto.family ?? []).map((member) => normalizeMember(member as HouseholdMemberInput)),
       cars: createDto.cars ?? [],
       status: 'pending',
       nationalIdNormalized: identity.nid || (null as unknown as string),
@@ -99,6 +101,12 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
       .orWhere("enrollment.owner ->> 'nid' = :nid OR enrollment.owner ->> 'mobile' = :mobile", { nid, mobile })
       .getOne();
     if (existing) throw new ConflictException('A registration already exists for this National ID or mobile number');
+
+    // Every household member carries their own identity details and face
+    // photos now, so they are validated here rather than stored unchecked.
+    const members = (createDto.family ?? []) as HouseholdMemberInput[];
+    const problems = householdProblems(members);
+    if (problems.length) throw new ConflictException(problems.join(' | '));
 
     await this.rejectRecognizedFace(owner, createDto.aiPersonId);
     return this.create(createDto);
@@ -272,6 +280,9 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
     try {
       let provisionedPersonId: string;
       let note: string;
+      // Applied after the transaction commits: a failed rename must not roll
+      // back an otherwise good approval.
+      const memberRenames: Array<[string, string, string]> = [];
 
       if (enrollment.aiPersonId && await this.aiPersonUsable(enrollment.aiPersonId)) {
         // Already in the gallery from the capture step: reuse it rather than
@@ -322,6 +333,28 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
           aiPersonId: provisionedPersonId,
         });
         const savedFace = await faces.save(face);
+
+        // Each household member was enrolled in the gallery during capture.
+        // Approval gives them a face record of their own, so a son or a
+        // driver is recognised as themselves rather than as the unit owner.
+        for (const member of (locked.family ?? []) as HouseholdMemberInput[]) {
+          if (!member.aiPersonId) continue;
+          await faces.save(faces.create({
+            id: `F-${Math.floor(100000 + Math.random() * 900000)}`,
+            name: [String(member.name ?? ''), String(member.name ?? '')],
+            type: 'known',
+            role: [String(member.relation ?? 'Resident'), String(member.relation ?? 'Resident')],
+            idno: String(member.nid ?? ''),
+            issuer: '',
+            enroll: new Date().toISOString().slice(0, 10),
+            img: '',
+            bldg: locked.building,
+            unit: locked.unit,
+            aiPersonId: member.aiPersonId,
+          }));
+          memberRenames.push([member.aiPersonId, String(member.name ?? ''), String(member.relation ?? 'resident')]);
+        }
+
         locked.faceId = savedFace.id;
         locked.status = 'approved';
         locked.aiSyncStatus = 'synced';
@@ -334,6 +367,11 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
         })];
         await enrollments.save(locked);
       });
+
+      // Turn each member's anonymous capture into their named record too.
+      for (const [personId, name, relation] of memberRenames) {
+        await this.aiGateway.updatePerson(personId, name, relation.toLowerCase()).catch(() => undefined);
+      }
 
       const approved = await this.findOne(ref);
       this.realtime.emit('enrollment.updated', { ref, status: 'approved', faceId: approved.faceId ?? null });
@@ -355,12 +393,13 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
     // The face went into the gallery at capture time, so rejecting the
     // registration has to take it back out or a refused applicant stays
     // recognizable at every camera.
-    let removedFromAi = false;
-    if (enrollment.aiPersonId) {
-      await this.aiGateway.deletePerson(enrollment.aiPersonId).catch(() => undefined);
-      removedFromAi = true;
-      enrollment.aiPersonId = null as unknown as string;
+    let removedFromAi = 0;
+    for (const personId of this.aiPersonIdsOf(enrollment)) {
+      await this.aiGateway.deletePerson(personId).catch(() => undefined);
+      removedFromAi += 1;
     }
+    enrollment.aiPersonId = null as unknown as string;
+    enrollment.family = (enrollment.family ?? []).map((member) => ({ ...member, aiPersonId: null }));
 
     enrollment.status = 'rejected';
     enrollment.aiSyncStatus = 'not_started';
@@ -384,15 +423,19 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
       ? await this.faceRepo.findOne({ where: { id: enrollment.faceId } })
       : null;
 
+    // The household are separate gallery people and separate face records, so
+    // deleting only the applicant would leave the rest recognisable forever.
+    const personIds = this.aiPersonIdsOf(enrollment);
     try {
-      if (face?.aiPersonId) await this.aiGateway.deletePerson(face.aiPersonId);
+      for (const personId of personIds) await this.aiGateway.deletePerson(personId);
       await this.dataSource.transaction(async (manager) => {
+        if (personIds.length) await manager.getRepository(Face).delete({ aiPersonId: In(personIds) });
         if (face) await manager.getRepository(Face).delete({ id: face.id });
         await manager.getRepository(Enrollment).delete({ ref });
       });
       await this.storage.deleteEnrollment(ref).catch(() => undefined);
       this.realtime.emit('enrollment.deleted', { ref, faceId: face?.id ?? null });
-      return { ref, deletedFaceId: face?.id ?? null, removedFromAi: Boolean(face?.aiPersonId) };
+      return { ref, deletedFaceId: face?.id ?? null, removedFromAi: personIds.length };
     } catch (error) {
       enrollment.status = 'delete_failed';
       enrollment.validationNote = `Deletion failed: ${this.errorMessage(error)}`;
@@ -400,6 +443,13 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
       await this.enrollRepo.save(enrollment).catch(() => undefined);
       throw error;
     }
+  }
+
+  /** Every AI gallery person this registration owns: the applicant and household. */
+  private aiPersonIdsOf(enrollment: Enrollment): string[] {
+    const ids = [enrollment.aiPersonId, ...((enrollment.family ?? []) as HouseholdMemberInput[])
+      .map((member) => member.aiPersonId)];
+    return [...new Set(ids.filter((id): id is string => Boolean(id)))];
   }
 
   /**

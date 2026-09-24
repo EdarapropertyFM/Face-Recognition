@@ -1,7 +1,7 @@
 import pytest
 
 from facerec.config import Config
-from facerec.dvr import DVRConfig, clear_dvr, load_dvr, resolve_source, save_dvr
+from facerec.dvr import URL_TEMPLATES, DVRConfig, clear_dvr, load_dvr, resolve_source, save_dvr
 
 
 def test_hikvision_urls():
@@ -54,3 +54,24 @@ def test_resolve_source(tmp_path):
     assert label == "dvr h ch3 sub"
     src, _ = resolve_source("DVR:3:main", cfg)
     assert src.endswith("subtype=0")
+
+
+def test_backend_templates_match_python():
+    """The NestJS backend builds camera RTSP URLs from its own copy of these
+    templates (backend/src/cameras/rtsp-url.ts). A drift between the two means
+    the software writes a URL the AI could never have produced, and the only
+    symptom is a camera that silently never connects."""
+    import re
+    from pathlib import Path
+
+    ts = Path(__file__).resolve().parents[1] / "backend" / "src" / "cameras" / "rtsp-url.ts"
+    if not ts.exists():
+        pytest.skip("backend not present in this checkout")
+    source = ts.read_text(encoding="utf-8")
+
+    for brand, expected in URL_TEMPLATES.items():
+        found = re.search(rf"^\s*{brand}: '([^']*)'", source, re.MULTILINE)
+        assert found, f"brand {brand!r} is missing from rtsp-url.ts"
+        # Python uses {sub1} via str.format; the TS copy spells it the same way.
+        assert found.group(1) == expected, (
+            f"template drift for {brand!r}:\n  python: {expected}\n  ts    : {found.group(1)}")

@@ -149,3 +149,58 @@ def test_model_version_stamped_on_templates(config, gallery_schema):
     mv = g.conn.execute(
         f"SELECT model_version FROM {gallery_schema}.template").fetchone()["model_version"]
     assert mv == MV
+
+
+def test_person_count_is_cached_not_queried_per_frame(config, gallery_schema):
+    """The live view draws the person count in its HUD on every frame. When
+    that hit the database each time it was hundreds of queries a second, and
+    a dropped connection killed the whole stream (psycopg OperationalError)."""
+    g = make_gallery(config, gallery_schema)
+    g.add_person("Alice")
+    assert g.person_count == 1
+
+    queries = {"n": 0}
+    real = g._count_persons
+
+    def counting():
+        queries["n"] += 1
+        return real()
+
+    g._count_persons = counting
+    for _ in range(200):                       # ~7 seconds of a 30fps HUD
+        assert g.person_count == 1
+    assert queries["n"] == 0, "person_count queried the database while cached"
+
+    # ...but a change must still be reflected.
+    g.add_person("Bob")
+    assert g.person_count == 2
+    assert queries["n"] == 1
+
+
+def test_person_count_includes_people_with_no_templates(config, gallery_schema):
+    """A provisional capture exists before any template is attached, so the
+    count cannot be derived from template rows."""
+    g = make_gallery(config, gallery_schema)
+    g.add_person("Pending registration", "provisional")
+    assert g.person_count == 1
+    assert len(g) == 0
+
+
+def test_survives_a_dropped_database_connection(config, gallery_schema):
+    """PostgreSQL closes idle connections and a restart ends all of them. A
+    live view running for hours has to recover instead of dying."""
+    g = make_gallery(config, gallery_schema)
+    pid = g.add_person("Alice")
+    g.add_templates(pid, unit(1)[None, :], [1.0], ["a.jpg"])
+
+    g.conn.close()
+    assert g.conn.closed
+
+    g.reconnect()
+    assert not g.conn.closed
+    assert g.get_person(pid).name == "Alice"
+    assert g.person_count == 1
+
+    # Searching never needed the database: it works even while disconnected.
+    g.conn.close()
+    assert g.search(unit(1))[0].person_id == pid

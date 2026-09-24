@@ -1,6 +1,7 @@
-import { ArrowRight, Building2, CheckCircle2, CreditCard, Mail, Phone, Upload, User } from 'lucide-react';
+import { ArrowRight, Building2, CheckCircle2, CalendarDays, CreditCard, Mail, Phone, Upload, User } from 'lucide-react';
 import EnrollmentProgress from './EnrollmentProgress';
 import FormField from './FormField';
+import { requiresNationalId } from '../../utils/household';
 import SelectField from './SelectField';
 import { getUnitsForBuilding } from '../../utils/enrollment';
 
@@ -8,6 +9,7 @@ export default function ResidenceIdentityStep({
   draft, errors, buildings, buildingsLoading, buildingsError, onRetryBuildings,
   onChange, onBuildingChange, onDocumentChange, onContinue,
 }) {
+  const showNationalId = requiresNationalId(draft.age);
   const buildingOptions = buildings.map((building) => ({
     value: building.code,
     label: `${building.name?.[0] || building.code} · ${building.code}`,
@@ -39,28 +41,33 @@ export default function ResidenceIdentityStep({
         <FormField id="name" label="Full name" icon={User} value={draft.name} error={errors.name}
           autoComplete="name" required onChange={(event) => onChange('name', event.target.value)} />
         <div className="enrollment-grid">
-          <FormField id="nid" label="National ID" icon={CreditCard} value={draft.nid} error={errors.nid}
-            inputMode="numeric" autoComplete="off" maxLength={14} required
-            onChange={(event) => onChange('nid', event.target.value.replace(/\D/g, '').slice(0, 14))} />
+          <FormField id="age" label="Age" icon={CalendarDays} value={draft.age} error={errors.age}
+            inputMode="numeric" autoComplete="off" maxLength={3} required
+            onChange={(event) => onChange('age', event.target.value.replace(/\D/g, '').slice(0, 3))} />
           <FormField id="mobile" label="Mobile number" icon={Phone} value={draft.mobile} error={errors.mobile}
             inputMode="tel" autoComplete="tel" maxLength={11} required
             onChange={(event) => onChange('mobile', event.target.value.replace(/\D/g, '').slice(0, 11))} />
         </div>
+        {/* A National ID exists only from 16, so it is asked for only then
+            rather than shown and left blank. */}
+        {showNationalId && <FormField id="nid" label="National ID" icon={CreditCard} value={draft.nid} error={errors.nid}
+          inputMode="numeric" autoComplete="off" maxLength={14} required
+          onChange={(event) => onChange('nid', event.target.value.replace(/\D/g, '').slice(0, 14))} />}
         <FormField id="email" label="Email (optional)" icon={Mail} type="email" value={draft.email}
           error={errors.email} autoComplete="email" onChange={(event) => onChange('email', event.target.value)} />
-        <div className={`enrollment-document ${errors.idDoc ? 'has-error' : ''}`}>
+        {showNationalId && <div className={`enrollment-document ${errors.idDoc ? 'has-error' : ''}`}>
           <span className="enrollment-document-label">National ID card *</span>
           <label htmlFor="id-document">
-            {draft.idDocName ? <CheckCircle2 size={22} aria-hidden="true" /> : <Upload size={22} aria-hidden="true" />}
+            {draft.idDocName || draft.idDocImage ? <CheckCircle2 size={22} aria-hidden="true" /> : <Upload size={22} aria-hidden="true" />}
             <span>
-              <strong>{draft.idDocName || 'Upload National ID card'}</strong>
-              <small>{draft.idDocName ? 'Selected for this session. Re-select it after a page refresh.' : 'JPG, PNG or WebP · maximum 5 MB'}</small>
+              <strong>{draft.idDocName || (draft.idDocImage ? 'National ID card attached' : 'Upload National ID card')}</strong>
+              <small>{draft.idDocName || draft.idDocImage ? 'Attached to this registration.' : 'JPG, PNG or WebP · maximum 5 MB'}</small>
             </span>
             <input id="id-document" name="idDocument" type="file" accept="image/jpeg,image/png,image/webp"
               onChange={(event) => onDocumentChange(event.target.files?.[0] ?? null)} />
           </label>
           {errors.idDoc ? <p className="enrollment-field-error">{errors.idDoc}</p> : null}
-        </div>
+        </div>}
         <button className="enrollment-button" type="submit" disabled={buildingsLoading || Boolean(buildingsError) || !buildings.length}>
           Continue to face capture <ArrowRight size={18} aria-hidden="true" />
         </button>

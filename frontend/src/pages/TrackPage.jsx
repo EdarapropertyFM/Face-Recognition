@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Download, UserPlus, Eye, Map, MapPin, Clock, Timer, Route, ShieldAlert, UserX, User } from 'lucide-react';
-import { FACES, DETECTIONS, ZONES } from '../store';
+import { FACES, DETECTIONS } from '../store';
+import { displayName, zoneLabel } from '../utils/display';
 
 function analyze(fid, evs, lang) {
   if (!evs.length) return null;
@@ -17,7 +18,7 @@ function analyze(fid, evs, lang) {
   return {
     total: evs.length,
     zones: Object.keys(zc).length,
-    busy: ZONES[busyZone][lang] + ' (' + busyCount + ')',
+    busy: zoneLabel(busyZone, lang) + ' (' + busyCount + ')',
     peak: peak + ':00',
     span: span + ' min',
     first: evs[evs.length - 1]?.when,
@@ -59,7 +60,7 @@ export default function TrackPage() {
         />
         <select value={selectedFace} onChange={e => setSelectedFace(e.target.value)}>
           {faceOptions.map(x => (
-            <option key={x.id} value={x.id}>{x.id} · {x.name[lang]}</option>
+            <option key={x.id} value={x.id}>{x.id} · {displayName(x, lang, x.id)}</option>
           ))}
         </select>
         <div className="grow" />
@@ -101,7 +102,7 @@ export default function TrackPage() {
                f?.type === 'unknown' ? <UserX size={20} color="var(--amber)" /> : 
                <User size={20} color="var(--green)" />}
             </span>
-            {f?.name[lang]} <span className={`tag ${f?.type}`} style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>{t(`face.${f?.type}`)}</span>
+            {displayName(f, lang)} <span className={`tag ${f?.type}`} style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>{t(`face.${f?.type}`)}</span>
           </h3>
           <table>
             <tbody>
@@ -125,7 +126,7 @@ export default function TrackPage() {
           <div className="tl">
             {evs.length ? evs.map((e, i) => (
               <div key={i} className={`ev ${e.type}`}>
-                <b>{ZONES[e.zone][lang]}</b> · {e.cam}
+                <b>{zoneLabel(e.zone, lang)}</b> · {e.cam}
                 <div>{e.when} · conf {e.conf}%</div>
               </div>
             )) : <div className="sub">No detections in range</div>}

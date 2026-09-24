@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, Building2, Home, CheckCircle, ShieldAlert, Users, UserX, Camera } from 'lucide-react';
 import { apiFetch } from '../api';
+import { displayName } from '../utils/display';
 
 function ProgressBar({ value, max }) {
   const pct = Math.round((value / max) * 100);
@@ -54,7 +55,7 @@ export default function BuildingsPage() {
       <>
         <div className="ph">
           <div>
-            <h1>{t('nav.buildings')} — {b.name[lang]}</h1>
+            <h1>{t('nav.buildings')} — {displayName(b, lang, b.code)}</h1>
             <div className="sub">{b.code} · STMC</div>
           </div>
         </div>
@@ -88,7 +89,7 @@ export default function BuildingsPage() {
                 {owners.length ? owners.map(f => (
                   <tr key={f.id} onClick={() => navigate('/track')} style={{ cursor: 'pointer' }}>
                     <td className="mono" style={{ color: '#fff' }}>{f.id}</td>
-                    <td>{f.name[lang]}</td>
+                    <td>{displayName(f, lang, f.id)}</td>
                     <td className="mono">{f.unit || '—'}</td>
                   </tr>
                 )) : <tr><td colSpan={3} className="sub">None yet</td></tr>}
@@ -162,7 +163,7 @@ export default function BuildingsPage() {
           <tbody>
             {buildings.map(b => (
               <tr key={b.code} onClick={() => setSelected(b.code)} style={{ cursor: 'pointer' }}>
-                <td><b>{b.name[lang]}</b> <span className="mono">{b.code}</span></td>
+                <td><b>{displayName(b, lang, b.code)}</b> <span className="mono">{b.code}</span></td>
                 <td>{b.units}</td>
                 <td>{b.enrolled}</td>
                 <td><ProgressBar value={b.enrolled} max={b.units} /></td>

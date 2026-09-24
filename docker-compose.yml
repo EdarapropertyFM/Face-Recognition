@@ -1,0 +1,114 @@
+# Full stack: PostgreSQL + Python AI + NestJS API + React frontend.
+#
+#   docker compose up -d --build
+#   frontend  http://localhost:5173
+#   API docs  http://localhost:3000/api
+#   AI        http://localhost:8000/gallery   /live   /dvr/setup
+#
+# First start downloads the ~600 MB buffalo_l model into the data volume.
+#
+# This supersedes backend/docker-compose.yml, which starts the database alone.
+# Both use the container name stmc_postgres and host port 5431, so stop that
+# one first or the database here cannot start:
+#
+#   docker compose -f backend/docker-compose.yml down
+#
+# CAMERA NOTE: a container cannot reach a USB webcam on Windows or macOS, so
+# /live?source=0 and browser enrolment work only when the AI runs on the host
+# (see README). DVR and RTSP sources work from the container either way. On
+# Linux, uncomment the `devices:` block under `ai` to pass a webcam through.
+
+services:
+  db:
+    image: postgres:15
+    container_name: stmc_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      # Holds both the backend tables and the AI's `facerec` schema.
+      POSTGRES_DB: ${DB_NAME:-stmc}
+    ports:
+      # 5431 on the host to match the existing local setup; 5432 inside.
+      - '${DB_PORT:-5431}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-stmc}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ai:
+    build: .
+    container_name: stmc_ai
+    restart: unless-stopped
+    environment:
+      DB_HOST: db
+      DB_PORT: '5432'
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-password}
+      DB_NAME: ${DB_NAME:-stmc}
+      DB_SCHEMA: facerec
+    ports:
+      - '8000:8000'
+    volumes:
+      # Model pack, embeddings.npy, gallery images, dvr.json. Bind-mounted so
+      # the gallery you already have is the one the container uses.
+      - ./data:/app/data
+    # Linux only — Windows and macOS cannot pass a USB camera to a container:
+    # devices:
+    #   - /dev/video0:/dev/video0
+    depends_on:
+      db:
+        condition: service_healthy
+
+  backend:
+    build: ./backend
+    container_name: stmc_backend
+    restart: unless-stopped
+    env_file:
+      # Secrets live here, never in this file. Copy backend/.env.example and
+      # fill it in; the values below override only what differs in Docker.
+      - ./backend/.env
+    environment:
+      NODE_ENV: development          # 'production' also enforces the secret-strength checks
+      DB_HOST: db
+      DB_PORT: '5432'
+      AI_BASE_URL: http://ai:8000    # service-to-service, inside the network
+      BIOMETRIC_STORAGE_DIR: /app/storage
+    ports:
+      - '3000:3000'
+    volumes:
+      - backend_storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      ai:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Empty: the browser calls <the host you opened>:3000/api. Set this to
+        # a full URL only when the API is served from somewhere else.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+    container_name: stmc_frontend
+    restart: unless-stopped
+    ports:
+      # 5173 keeps the address identical to `npm run dev`.
+      - '5173:80'
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  pgdata:
+    # The volume the standalone backend/docker-compose.yml already created.
+    # Naming it explicitly means this stack keeps the existing database
+    # (users, enrollments, and the AI's facerec schema) instead of starting
+    # from an empty one under a project-prefixed name.
+    name: backend_pgdata
+  backend_storage:
+

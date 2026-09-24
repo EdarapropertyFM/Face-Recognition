@@ -10,6 +10,7 @@ import { useEnrollmentDraft } from '../hooks/useEnrollmentDraft';
 import { useBuildingOptions } from '../hooks/useBuildingOptions';
 import { apiFetch } from '../api';
 import { compressImageFile } from '../utils/image';
+import { memberPayload } from '../utils/household';
 import ErrorBoundary from '../components/ErrorBoundary';
 import './EnrollmentPage.css';
 
@@ -18,8 +19,11 @@ export default function EnrollmentPage() {
   const {
     draft, errors, identityDocument, faceCaptures, aiPersonId, step, updateField, updateBuilding,
     setIdentityDocument, updateFaceCaptures, setAiPersonId, setFamily, setCars, clearSavedDraft,
-    goToStep, validateResidence,
+    goToStep, validateResidence, resumable, resumeStep,
   } = useEnrollmentDraft();
+  // Offered, never applied silently: on a shared phone or tablet the next
+  // person must not inherit someone else's half-finished registration.
+  const [resumeOffer, setResumeOffer] = useState(resumable);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [submittedRef, setSubmittedRef] = useState('');
@@ -32,7 +36,7 @@ export default function EnrollmentPage() {
   };
 
   const submitEnrollment = async () => {
-    if (!identityDocument || faceCaptures.length !== 5) {
+    if ((!identityDocument && !draft.idDocImage) || faceCaptures.length !== 5) {
       setSubmitError('Your ID card and all five face photos are required. Go back and capture them again.');
       return;
     }
@@ -43,7 +47,7 @@ export default function EnrollmentPage() {
     setSubmitting(true);
     setSubmitError('');
     try {
-      const idCard = await compressImageFile(identityDocument);
+      const idCard = identityDocument ? await compressImageFile(identityDocument) : draft.idDocImage;
       const faces = Object.fromEntries(faceCaptures.map((capture) => [capture.key, capture.image]));
       const payload = {
         schema: 'stmc.enroll.v1',
@@ -51,11 +55,11 @@ export default function EnrollmentPage() {
         unit: draft.unit,
         submittedAt: new Date().toISOString(),
         owner: {
-          name: draft.name.trim(), nid: draft.nid, mobile: draft.mobile,
+          name: draft.name.trim(), age: Number(draft.age), nid: draft.nid || null, mobile: draft.mobile,
           email: draft.email.trim() || null, nationalIdCard: idCard, faces,
           consentAcceptedAt: new Date().toISOString(), consentVersion: 'pdpl-v1',
         },
-        family: draft.family.map(({ id: _id, ...member }) => member),
+        family: draft.family.map(memberPayload),
         cars: draft.cars.map(({ id: _id, ...vehicle }) => vehicle),
         aiPersonId,
       };
@@ -82,6 +86,20 @@ export default function EnrollmentPage() {
           <span className="enrollment-brand-mark"><Building2 size={24} aria-hidden="true" /></span>
           <span><strong>STMC</strong><small>Secure enrollment</small></span>
         </header>
+        {resumeOffer && <div className="enrollment-resume" role="status">
+          <div>
+            <b>You have an unfinished registration</b>
+            <p>{`Saved on this device${faceCaptures.length ? ` with ${faceCaptures.length} face photo(s)` : ''}. Continue where you left off, or start again.`}</p>
+          </div>
+          <div className="enrollment-resume-actions">
+            <button type="button" className="enrollment-button" onClick={() => { setResumeOffer(false); goToStep(resumeStep); }}>
+              Continue
+            </button>
+            <button type="button" className="enrollment-button secondary" onClick={() => { clearSavedDraft(); setResumeOffer(false); goToStep(1); }}>
+              Start again
+            </button>
+          </div>
+        </div>}
         <ErrorBoundary>
           {step === 1 ? (
             <ResidenceIdentityStep

@@ -1,0 +1,24 @@
+# Biometric data and the model pack: mounted as a volume, never in the image.
+data/
+samples/
+*.jpg
+*.jpeg
+*.png
+
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+tests/
+
+backend/
+frontend/
+ai_relay/
+postman/
+
+.git/
+.gitignore
+*.md
+Dockerfile
+docker-compose.yml
+.dockerignore

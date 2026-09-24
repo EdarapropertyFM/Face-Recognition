@@ -3,10 +3,11 @@
 import './config/load-env';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { json, urlencoded } from 'express';
 import { validateEnvironment } from './config/validate-environment';
+import { isAllowedOrigin, parseFrontendOrigins } from './config/cors-origin';
 
 validateEnvironment();
 
@@ -17,16 +18,20 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   // Enable CORS for frontend
-  const configuredOrigins = new Set((process.env.FRONTEND_ORIGINS ?? '').split(',').map((origin) => origin.trim()).filter(Boolean));
+  const configuredOrigins = parseFrontendOrigins(process.env.FRONTEND_ORIGINS);
+  const isProduction = process.env.NODE_ENV === 'production';
   app.enableCors({
     origin: (origin, callback) => {
-      // Mobile enrollment is opened from the machine's LAN address, while
-      // local development may use localhost or 127.0.0.1.
-      if (!origin || configuredOrigins.has(origin) || /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/.test(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Origin not allowed by CORS'));
+      // Never hand the callback an Error: express-cors turns that into an
+      // opaque 500, which looks like a server fault instead of a blocked
+      // origin. `false` produces a normal response the browser blocks, and
+      // the reason is logged here once.
+      const allowed = isAllowedOrigin(origin, configuredOrigins, isProduction);
+      if (!allowed) {
+        Logger.warn(`Blocked cross-origin request from ${origin}. `
+          + 'Add it to FRONTEND_ORIGINS if this is expected.', 'CORS');
       }
+      callback(null, allowed);
     },
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,

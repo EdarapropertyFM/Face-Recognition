@@ -28,6 +28,17 @@ from .config import Config
 # (or before cv2 loads), so it is also documented in the README.
 os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
 
+# FFmpeg's own decoder chatter, at AV_LOG level (quiet -8, fatal 8, error 16,
+# warning 24, info 32). Default: fatal.
+#
+# Joining a live H.264/H.265 stream starts mid-GOP, before the parameter sets
+# and the next keyframe arrive, so the decoder logs "PPS id out of range" and
+# "Could not find ref with POC" until it resynchronises — once per connection,
+# per tile. The frames that follow are fine, and nothing here relies on that
+# output: a failure is detected from cap.isOpened(), a False read, or our own
+# timeouts. Raise this to 32 when actually debugging a camera.
+os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "8")
+
 RTSP_OPEN_TIMEOUT_MS = 5000       # unreachable DVR fails in ~5 s instead of ~30 s
 RTSP_READ_TIMEOUT_MS = 5000
 

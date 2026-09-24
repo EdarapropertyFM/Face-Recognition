@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Expand, LoaderCircle, Monitor, Radio, RefreshCw, VideoOff } from 'lucide-react';
+import { ChevronDown, ChevronRight, Expand, HardDrive, LoaderCircle, Monitor, Radio, RefreshCw, VideoOff } from 'lucide-react';
 import { ZONES } from '../store';
 import { apiFetch, apiUrl } from '../api';
 import { useRealtime } from '../hooks/useRealtime';
@@ -58,6 +58,7 @@ export default function LiveWallPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [collapsed, setCollapsed] = useState({});
 
   const loadCameras = useCallback(async () => {
     setLoading(true);
@@ -79,11 +80,44 @@ export default function LiveWallPage() {
   const visible = useMemo(() => cameras.filter((camera) => zoneFilter < 0 || camera.zone === zoneFilter), [cameras, zoneFilter]);
   const configured = cameras.filter((camera) => camera.rtspConfigured && camera.enabled !== false).length;
 
+  // A recorder is one device with many feeds. Grouping its channels under a
+  // single heading keeps eight tiles from reading as eight unrelated cameras,
+  // and lets an operator collapse a recorder they are not watching.
+  const groups = useMemo(() => {
+    const byHost = new Map();
+    for (const camera of visible) {
+      const key = camera.host || '__standalone__';
+      if (!byHost.has(key)) byHost.set(key, []);
+      byHost.get(key).push(camera);
+    }
+    return [...byHost.entries()]
+      .map(([host, list]) => ({
+        host,
+        isDvr: host !== '__standalone__' && list.length > 1,
+        cameras: [...list].sort((a, b) => (a.channel ?? 0) - (b.channel ?? 0) || a.id.localeCompare(b.id)),
+      }))
+      .sort((a, b) => Number(b.isDvr) - Number(a.isDvr) || a.host.localeCompare(b.host));
+  }, [visible]);
+
+  const toggleGroup = (host) => setCollapsed((current) => ({ ...current, [host]: !current[host] }));
+
   return <>
     <div className="ph"><div><h1>{t('nav.livewall')}</h1><div className="sub">{configured} / {cameras.length} {lang ? 'مصدر بث مُعد' : 'streams configured'}</div></div><div className="grow" /><div className="chips"><span className="chip"><i style={{ color: 'var(--green)' }}>●</i> {t('face.known')}</span><span className="chip"><i style={{ color: 'var(--amber)' }}>●</i> {t('face.unknown')}</span><span className="chip"><i style={{ color: 'var(--red)' }}>●</i> {t('face.watch')}</span></div></div>
     <div className="toolbar" style={{ marginBottom: 16 }}><Monitor size={16} style={{ color: 'var(--muted)' }} /><select value={zoneFilter} onChange={(event) => setZoneFilter(Number(event.target.value))}><option value={-1}>{lang ? 'كل المناطق' : 'All Zones'}</option>{ZONES.map((zone, index) => <option key={zone[0]} value={index}>{zone[lang]}</option>)}</select><button className="btn ghost sm" onClick={() => { loadCameras(); setRefreshKey((value) => value + 1); }}><RefreshCw size={13} /> {lang ? 'تحديث البث' : 'Refresh streams'}</button></div>
     {error && <div className="note" style={{ color: 'var(--red)', borderColor: 'var(--red)' }}>{error}</div>}
-    {loading ? <div className="note"><LoaderCircle size={15} /> {lang ? 'جاري تحميل الكاميرات…' : 'Loading cameras…'}</div> : <div className="wall">{visible.map((camera) => <CameraFeed key={camera.id} camera={camera} lang={lang} refreshKey={refreshKey} />)}</div>}
+    {loading ? <div className="note"><LoaderCircle size={15} /> {lang ? 'جاري تحميل الكاميرات…' : 'Loading cameras…'}</div> : groups.map((group) => {
+      const online = group.cameras.filter((camera) => camera.rtspConfigured && camera.enabled !== false).length;
+      const shut = collapsed[group.host];
+      return <section className="wall-group" key={group.host}>
+        {group.isDvr && <button type="button" className="wall-group-head" onClick={() => toggleGroup(group.host)} aria-expanded={!shut}>
+          {shut ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+          <HardDrive size={15} />
+          <b>{group.cameras[0].displayName?.replace(/\s*CH\d+$/, '') || group.host}</b>
+          <span className="wall-group-meta">{group.host} · {group.cameras.length} {lang ? 'قناة' : 'channels'} · {online} {lang ? 'مُعد' : 'configured'}</span>
+        </button>}
+        {!shut && <div className="wall">{group.cameras.map((camera) => <CameraFeed key={camera.id} camera={camera} lang={lang} refreshKey={refreshKey} />)}</div>}
+      </section>;
+    })}
     {!loading && !visible.length && <div className="note">{lang ? 'لا توجد كاميرات في هذه المنطقة.' : 'No cameras in this zone.'}</div>}
     <div className="note" style={{ marginTop: 16 }}>{lang ? 'البث يعرض نتائج التعرف على الوجوه المرسومة مباشرة بواسطة نموذج STMC AI. روابط RTSP وبيانات الدخول لا تصل إلى المتصفح.' : 'The stream shows face-recognition overlays generated live by STMC AI. RTSP URLs and credentials never reach the browser.'}</div>
   </>;

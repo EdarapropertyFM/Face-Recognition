@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Search, UserPlus, Download, Users, ShieldAlert, UserX, User, Info } from 'lucide-react';
 import { DETECTIONS } from '../store'; // Detections still mock for now
 import { apiFetch } from '../api';
+import { displayName } from '../utils/display';
 
 export default function FaceDBPage() {
   const { t, i18n } = useTranslation();
@@ -84,7 +85,7 @@ export default function FaceDBPage() {
                 </td>
                 <td className="mono" style={{ color: '#fff' }}>{f.id}</td>
                 <td>
-                  <b>{f.name[lang]}</b><br />
+                  <b>{displayName(f, lang, f.id)}</b><br />
                   <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{f.role[lang]}</span>
                 </td>
                 <td><span className={`tag ${f.type}`} style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>{t(`face.${f.type}`)}</span></td>

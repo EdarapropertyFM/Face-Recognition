@@ -47,7 +47,64 @@ It refuses to run if the two stores disagree or PostgreSQL already holds a
 gallery, leaves `embeddings.npy` untouched, and keeps the old file as
 `gallery.db.migrated`.
 
-## Setup (Windows, Python 3.11)
+## Running everything with Docker
+
+```powershell
+docker compose -f backend/docker-compose.yml down   # if the standalone db is running
+docker compose up -d --build
+```
+
+The root compose supersedes `backend/docker-compose.yml` (which starts only the
+database). Both use the container name `stmc_postgres` and host port 5431, so
+only one can run at a time. They share the same `backend_pgdata` volume, so
+switching keeps your existing database.
+
+| Service | URL | Notes |
+|---|---|---|
+| Frontend | http://localhost:5173 | React app (nginx) |
+| Backend | http://localhost:3000/api | NestJS + Swagger |
+| AI | http://localhost:8000/gallery | also `/live`, `/dvr/setup`, `/docs` |
+| PostgreSQL | `localhost:5431` | backend tables + the AI's `facerec` schema |
+
+Before the first run, `backend/.env` must exist (copy `backend/.env.example` and
+generate the secrets — see the API section). Compose reads it for the secrets
+and overrides only the values that differ inside Docker (`DB_HOST=db`,
+`AI_BASE_URL=http://ai:8000`).
+
+The first start downloads the ~600 MB `buffalo_l` model into `./data`, which is
+bind-mounted, so the gallery and model you already have are the ones the
+container uses. Give the AI a couple of minutes before its healthcheck passes.
+
+**A USB webcam is not reachable from a container on Windows or macOS.** Docker
+can only pass through `/dev/video*` on Linux (uncomment the `devices:` block in
+`docker-compose.yml`). So with the stack in Docker:
+
+- DVR and RTSP sources work normally — `/live?source=dvr:1`
+- `?source=0` (laptop camera) and the browser enrolment camera do **not**
+
+If you need the laptop camera, run the AI on the host and the rest in Docker:
+
+```powershell
+docker compose up -d db backend frontend
+.venv\Scripts\uvicorn api.main:app --host 127.0.0.1 --port 8000
+```
+
+and set `AI_BASE_URL=http://host.docker.internal:8000` for the backend service.
+
+Other useful commands:
+
+```powershell
+docker compose logs -f ai        # or backend / frontend / db
+docker compose ps                # health of each service
+docker compose down              # stop, keep the data
+docker compose down -v           # DELETES the database volume
+```
+
+`docker compose down -v` drops the `facerec` schema along with the backend
+tables. `data/embeddings.npy` survives, so the gallery's two halves would
+disagree and the AI would refuse to start — see Storage above.
+
+## Setup without Docker (Windows, Python 3.11)
 
 ```powershell
 py -3.11 -m venv .venv

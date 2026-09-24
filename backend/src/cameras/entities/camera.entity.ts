@@ -32,6 +32,27 @@ export class Camera {
   @Column({ default: false })
   rtspConfigured: boolean;
 
+  // Non-secret half of the connection details, kept so the edit form can be
+  // reopened without ever sending the password back to the browser. The
+  // password lives only inside rtspUrlEncrypted.
+  @Column({ type: 'varchar', nullable: true })
+  host: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  port: number | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  username: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  brand: string | null;
+
+  @Column({ type: 'int', nullable: true })
+  channel: number | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  stream: string | null;
+
   @Column({ unique: true, default: () => 'gen_random_uuid()' })
   playbackId: string;
 

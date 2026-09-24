@@ -4,13 +4,14 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import {
   CAMERAS_ONLINE, CAMERAS_TOTAL,
-  DETECTIONS, ALERTS, INCIDENTS, FACES, ZONES
+  DETECTIONS, ALERTS, INCIDENTS, FACES
 } from '../store';
 import { apiFetch } from '../api';
 import { useRealtime } from '../hooks/useRealtime';
 import { 
   Camera, Users, UserX, UserMinus, ShieldAlert, AlertTriangle, Building2, Bell, FileText
 } from 'lucide-react';
+import { displayName, zoneLabel } from '../utils/display';
 
 export default function DashboardPage() {
   const { t, i18n } = useTranslation();
@@ -123,9 +124,9 @@ export default function DashboardPage() {
               <div key={a.id} className={`alert-row ${a.status === 'resolved' ? 'done' : ''}`}>
                 <div className="face-th">{f?.type === 'watch' ? '⛔' : f?.type === 'unknown' ? '❓' : '👤'}</div>
                 <div className="meta">
-                  <b>{f?.name[lang]}</b> <span className={`tag ${f?.type}`}>{t(`face.${f?.type}`)}</span>{' '}
+                  <b>{displayName(f, lang, a.face)}</b> <span className={`tag ${f?.type}`}>{t(`face.${f?.type}`)}</span>{' '}
                   <span className={`tag ${a.status}`}>{a.status.toUpperCase()}</span>
-                  <div>{a.cam} · {ZONES[a.zone][lang]} · {a.when} · conf {a.conf}%</div>
+                  <div>{a.cam} · {zoneLabel(a.zone, lang)} · {a.when} · conf {a.conf}%</div>
                 </div>
               </div>
             );
@@ -160,7 +161,7 @@ export default function DashboardPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
           {liveBuildings.map(b => (
             <div key={b.code} className="statcard" style={{ cursor: 'pointer' }} onClick={() => navigate('/buildings')}>
-              <div className="l">{b.name[lang]}</div>
+              <div className="l">{displayName(b, lang, b.code)}</div>
               <div className="v" style={{ fontSize: 20 }}>{b.enrolled}<span style={{ fontSize: 12, color: 'var(--muted)' }}>/{b.units}</span></div>
               {b.strangersToday > 0 && <div style={{ color: 'var(--red)', fontSize: 11 }}>⚠ {b.strangersToday} strangers</div>}
             </div>

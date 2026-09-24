@@ -315,6 +315,20 @@ html[dir="rtl"] .search > svg { left: auto; right: 10px; }
 .chip.on { background: var(--accent2); color: #fff; border-color: var(--accent2); }
 
 .wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+
+/* A DVR and its channels, grouped so many feeds read as one device. */
+.wall-group { margin-bottom: 22px; }
+.wall-group-head { display: flex; align-items: center; gap: 9px; width: 100%; margin-bottom: 12px;
+  padding: 9px 12px; background: var(--card, #141b2a); border: 1px solid var(--line, #24304a);
+  border-radius: 9px; color: inherit; font: inherit; cursor: pointer; text-align: start; }
+.wall-group-head:hover { border-color: var(--accent, #3aa0ff); }
+.wall-group-head b { font-size: 14px; }
+.wall-group-meta { color: var(--muted, #8b97ad); font-size: 12px; margin-inline-start: auto; }
+
+/* "Import all channels" block in the camera form. */
+.camera-import-box { margin-top: 14px; padding: 12px; border: 1px dashed var(--line, #24304a);
+  border-radius: 9px; }
+.camera-import-hint { margin: 2px 0 10px; font-size: 12px; color: var(--muted, #8b97ad); }
 .cam {
   background: var(--bg2);
   border: 1px solid var(--glass-border);

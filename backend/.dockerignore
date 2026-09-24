@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+storage/
+# Secrets come from compose env, never baked into the image. Also keeps
+# process.loadEnvFile() from overriding the container's settings.
+.env
+.env.*
+!.env.example
+*.log
+test/

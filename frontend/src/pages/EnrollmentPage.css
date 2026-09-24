@@ -248,3 +248,49 @@
   .review-faces { grid-template-columns: repeat(5, minmax(48px, 1fr)); overflow-x: auto; }
   .review-list li { flex-direction: column; gap: 3px; }
 }
+
+/* Offer to pick up a registration left unfinished on this device. */
+.enrollment-resume {
+  display: flex; flex-wrap: wrap; gap: 14px; align-items: center; justify-content: space-between;
+  margin-bottom: 18px; padding: 14px 16px;
+  background: rgba(58, 160, 255, .08); border: 1px solid rgba(58, 160, 255, .35); border-radius: 12px;
+}
+.enrollment-resume b { display: block; font-size: 15px; }
+.enrollment-resume p { margin: 4px 0 0; font-size: 13px; opacity: .8; }
+.enrollment-resume-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.enrollment-resume-actions .enrollment-button { margin: 0; }
+
+/* Per-member face capture, inside a household card. */
+.member-face-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin-top: 12px; padding: 12px 14px;
+  border: 1px dashed rgba(148, 163, 184, .4); border-radius: 12px;
+}
+.member-face-row.has-error { border-color: #ef4444; }
+.member-face-row strong { display: block; font-size: 14px; }
+.member-face-row small { font-size: 12px; opacity: .75; }
+.member-face-row .enrollment-button { margin: 0; }
+
+.member-capture { margin-top: 12px; padding: 12px; border: 1px solid rgba(58, 160, 255, .35);
+  border-radius: 12px; background: rgba(58, 160, 255, .06); }
+.member-capture-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.member-capture-head button { background: none; border: 0; cursor: pointer; color: inherit; opacity: .7; }
+.member-capture-instruction { font-size: 13px; margin-bottom: 6px; opacity: .9; }
+.member-capture-viewport { position: relative; aspect-ratio: 1; max-width: 320px; margin: 0 auto;
+  border-radius: 12px; overflow: hidden; background: #000; }
+.member-capture-viewport video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.member-capture-state { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px;
+  align-items: center; justify-content: center; color: #cbd5e1; background: rgba(2, 6, 23, .72); font-size: 13px; }
+.member-capture-hold { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,.2); }
+.member-capture-hold span { display: block; height: 100%; background: #22c55e; }
+.member-capture-message { display: block; margin-top: 8px; font-size: 13px; text-align: center; }
+.member-capture-message.error { color: #ef4444; }
+.member-capture-poses { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; justify-content: center; }
+.member-capture-poses span { display: inline-flex; align-items: center; gap: 4px; font-size: 11px;
+  padding: 3px 9px; border-radius: 999px; border: 1px solid rgba(148,163,184,.35); opacity: .75; }
+.member-capture-poses span.done { border-color: #22c55e; color: #22c55e; opacity: 1; }
+.member-capture-poses span.current { border-color: #3aa0ff; color: #3aa0ff; opacity: 1; }
+.member-capture-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 10px; }
+.member-capture-actions .enrollment-button { margin: 0; }
+.spin { animation: member-spin 1s linear infinite; }
+@keyframes member-spin { to { transform: rotate(360deg); } }

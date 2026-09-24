@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Search, Bell, ShieldAlert, UserX, User, Info, CheckCircle2, Crosshair } from 'lucide-react';
-import { ALERTS, FACES, ZONES } from '../store';
+import { ALERTS, FACES } from '../store';
 import { useAuth } from '../context/useAuth';
 import { apiFetch } from '../api';
 import { useRealtime } from '../hooks/useRealtime';
+import { displayName, zoneLabel } from '../utils/display';
 
 const LIFECYCLE = ['new','ack','actioned','resolved','false'];
 
@@ -95,10 +96,10 @@ export default function AlertsPage() {
                  <User size={20} color="var(--green)" />}
               </div>
               <div className="meta">
-                <b style={{ fontSize: 14 }}>{f?.name[lang] || a.face}</b>{' '}
+                <b style={{ fontSize: 14 }}>{displayName(f, lang, a.face)}</b>{' '}
                 <span className={`tag ${f?.type}`} style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>{t(`face.${f?.type}`)}</span>{' '}
                 <span className={`tag ${a.status}`} style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>{a.status.toUpperCase()}</span>
-                <div>{a.cam} · {ZONES[a.zone][lang]} · {a.when} · conf {a.conf}%
+                <div>{a.cam} · {zoneLabel(a.zone, lang)} · {a.when} · conf {a.conf}%
                   {a.log?.length > 0 && <> · {a.log.map(l => `${l[1]} ${l[2]}`).join(' → ')}</>}
                 </div>
               </div>

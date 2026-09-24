@@ -215,7 +215,7 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
     } finally {
       checkingRef.current = false;
     }
-  }, [stopCamera]);
+  }, [enrollCaptures, stopCamera]);
 
   const startCamera = useCallback(async () => {
     stopCamera();

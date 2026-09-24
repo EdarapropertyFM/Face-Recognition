@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search, UserPlus, Shield, Users, Lock, Eye, Edit2, X, Info } from 'lucide-react';
 import { USERS, ROLES } from '../store';
+import { displayName } from '../utils/display';
 
 const MODULES = ['dashboard','livewall','cameras','buildings','enrollments','alerts','track','facedb','incidents','reports','admin','settings'];
 const ROLE_LIST = Object.keys(ROLES);
@@ -51,7 +52,7 @@ export default function AdminPage() {
               {filtered.map(u => (
                 <tr key={u.u} style={{ transition: '0.2s' }}>
                   <td className="mono" style={{ color: 'var(--muted)' }}>{u.u}</td>
-                  <td style={{ color: 'var(--txt)', fontWeight: 600 }}>{u.name[lang]}</td>
+                  <td style={{ color: 'var(--txt)', fontWeight: 600 }}>{displayName(u, lang, u.u)}</td>
                   <td>
                     <select value={u.role} onChange={e => setRole(u.u, e.target.value)} style={{ background: 'var(--stat-bg)', border: '1px solid var(--glass-border)', color: 'var(--txt)', borderRadius: 8, padding: '4px 8px', fontSize: 12 }}>
                       {ROLE_LIST.map(r => <option key={r} style={{ background: 'var(--bg2)' }}>{r}</option>)}
