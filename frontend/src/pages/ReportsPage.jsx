@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
-import { Download, BarChart3, Map, PieChart, Info, TrendingUp, AlertTriangle, Users, FileText, Activity, ShieldAlert } from 'lucide-react';
-import { DETECTIONS, ZONES, INCIDENTS, PENDING_ENROLLMENTS, SEF_FORMS } from '../store';
+import { Download, BarChart3, Map, PieChart, Info, TrendingUp, Users, Activity, ShieldAlert } from 'lucide-react';
+import { DETECTIONS, ZONES, PENDING_ENROLLMENTS } from '../store';
 
 export default function ReportsPage() {
   const { t, i18n } = useTranslation();
@@ -38,18 +38,9 @@ export default function ReportsPage() {
   });
   const maxTime = Math.max(...byTime.map(x => x.count), 1);
 
-  // 4. Incidents by SEF Form
-  const bySef = Object.keys(SEF_FORMS).map(k => ({
-    sef: k,
-    name: SEF_FORMS[k][lang],
-    count: INCIDENTS.filter(i => i.sef === k).length
-  })).filter(s => s.count > 0).sort((a, b) => b.count - a.count);
-  const maxSef = Math.max(...bySef.map(x => x.count), 1);
-
   // KPIs
   const totalDetections = DETECTIONS.length;
   const watchHits = DETECTIONS.filter(d => d.type === 'watch').length;
-  const activeIncidents = INCIDENTS.filter(i => i.status !== 'closed').length;
   const pendingEnroll = PENDING_ENROLLMENTS.length;
 
   return (
@@ -87,14 +78,6 @@ export default function ReportsPage() {
         </div>
         <div className="panel glass-panel" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-            <div style={{ padding: 10, background: 'rgba(243,156,18,0.15)', borderRadius: 10, color: 'var(--amber)' }}><AlertTriangle size={20} /></div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase' }}>{lang ? 'حوادث نشطة' : 'Active Incidents'}</div>
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 800, color: '#fff' }}>{activeIncidents}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>{INCIDENTS.length} total incidents</div>
-        </div>
-        <div className="panel glass-panel" style={{ padding: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
             <div style={{ padding: 10, background: 'rgba(46,204,113,0.15)', borderRadius: 10, color: 'var(--green)' }}><Users size={20} /></div>
             <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase' }}>{lang ? 'طلبات تسجيل معلقة' : 'Pending Enrollments'}</div>
           </div>
@@ -120,23 +103,6 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          {/* Incidents by SEF */}
-          <div className="panel glass-panel">
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><FileText size={18} color="var(--amber)" /> {lang ? 'تحليل الحوادث حسب نماذج SEF' : 'Incident Analysis by SEF Forms'}</h3>
-            <div style={{ marginTop: 16 }}>
-              {bySef.map((s, i) => (
-                <div key={i} style={{ marginBottom: 14 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><span className="sefbadge" style={{ padding: '2px 6px', fontSize: 9 }}>{s.sef}</span> {s.name}</span>
-                    <b style={{ color: '#fff' }}>{s.count}</b>
-                  </div>
-                  <div style={{ height: 8, background: 'var(--stat-bg)', borderRadius: 5, overflow: 'hidden', border: '1px solid var(--glass-border)' }}>
-                    <div style={{ height: '100%', width: `${(s.count / maxSef) * 100}%`, background: 'var(--amber)', boxShadow: '0 0 10px var(--amber)', transition: 'width 1s cubic-bezier(0.4, 0, 0.2, 1)' }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

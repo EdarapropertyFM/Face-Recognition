@@ -191,7 +191,7 @@ Terminal:
 | Method | Path | Notes |
 |---|---|---|
 | GET / POST / DELETE | `/dvr` | show (password masked) / set / forget the DVR |
-| GET | `/dvr/brands` | known RTSP URL patterns: hikvision, dahua, uniview, xmeye, or `custom` with your own template |
+| GET | `/dvr/brands` | known RTSP URL patterns: hikvision, dahua, uniview, xmeye, tvt, or `custom` with your own template |
 | GET | `/dvr/channels` | probe channels: resolution, fps, error per channel (`?detect=true` also counts faces) |
 | GET | `/dvr/channels/{ch}/snapshot.jpg` | one frame (`?annotate=true` draws recognition results) |
 

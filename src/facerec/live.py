@@ -59,10 +59,13 @@ def draw_track(img, track: Track, result: Result | None) -> None:
 def open_source(source: str | int, cfg: Config | None = None) -> cv2.VideoCapture:
     """Open a webcam index, file, rtsp:// URL, or the shorthand dvr:<ch>
     (resolved through data/dvr.json; see facerec.dvr)."""
-    from .dvr import resolve_source                    # local import: avoids a cycle
+    from .dvr import open_rtsp, resolve_source         # local import: avoids a cycle
     from .config import load_config
     src, label = resolve_source(source, cfg or load_config())
-    cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG) if isinstance(src, str) and src.startswith("rtsp") \
+    # open_rtsp applies the bounded connect/read timeouts. Building the capture
+    # here instead left FFmpeg on its 30 s default, so an unreachable camera
+    # held a grabber thread for half a minute after the request had given up.
+    cap = open_rtsp(src) if isinstance(src, str) and src.startswith("rtsp") \
         else cv2.VideoCapture(src)
     if not cap.isOpened():
         raise RuntimeError(f"cannot open video source {label}")

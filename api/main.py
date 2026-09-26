@@ -460,24 +460,43 @@ def person_image(person_id: str, filename: str, request: Request):
 
 # ----------------------------------------------------------------- live view
 
+# Long enough for an RTSP connect (RTSP_OPEN_TIMEOUT_MS) plus the first
+# keyframe, short enough that a browser tile fails visibly instead of hanging.
+FIRST_FRAME_TIMEOUT_S = 12.0
+# A live stream that goes this long without a frame is finished, not slow.
+STALLED_STREAM_TIMEOUT_S = 15.0
+
+
 async def mjpeg_response(request: Request, worker: JpegWorker) -> StreamingResponse:
-    # Fail fast with a readable error if the camera cannot be opened.
-    deadline = time.monotonic() + 5.0
+    # Wait for the first frame, then answer honestly.
+    #
+    # This MUST 503 when no frame arrived, not just when the worker already
+    # died. Returning 200 with a body that never produces anything leaves the
+    # browser holding an <img> that fires neither load nor error; a handful of
+    # dead tiles then exhaust the per-origin connection limit and every other
+    # request on the page queues behind them.
+    deadline = time.monotonic() + FIRST_FRAME_TIMEOUT_S
     while worker.latest is None and worker.alive and time.monotonic() < deadline:
         await asyncio.sleep(0.05)
-    if worker.latest is None and not worker.alive:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, worker.error or "stream stopped")
+    if worker.latest is None:
+        worker.stop()
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            worker.error or "camera produced no frames")
 
     async def gen():
         worker.viewers += 1
         worker.last_viewer_t = time.monotonic()
+        last_frame_t = time.monotonic()
         try:
             while not await request.is_disconnected():
                 frame = await asyncio.to_thread(worker.next_frame, 2.0)
                 if frame is None:
-                    if not worker.alive:
+                    # End a stalled stream rather than holding the connection
+                    # open forever: the tile can then show an error and retry.
+                    if not worker.alive or time.monotonic() - last_frame_t > STALLED_STREAM_TIMEOUT_S:
                         break
                     continue
+                last_frame_t = time.monotonic()
                 yield mjpeg_chunk(frame)
                 if not worker.alive:
                     break

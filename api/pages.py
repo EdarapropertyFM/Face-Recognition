@@ -108,7 +108,7 @@ input,select{font:inherit;padding:6px;background:#222;color:#eee;border:1px soli
  <label>RTSP port<input id="port" type="number" value="554"></label>
  <label>Username<input id="username" value="admin"></label>
  <label>Password<input id="password" type="password"></label>
- <label>Brand<select id="brand"><option>hikvision</option><option>dahua</option><option>uniview</option><option>xmeye</option><option>custom</option></select></label>
+ <label>Brand<select id="brand"><option>hikvision</option><option>dahua</option><option>uniview</option><option>xmeye</option><option>tvt</option><option>custom</option></select></label>
  <label>Channels<input id="channels" type="number" value="8" min="1" max="64"></label>
  <label>Stream<select id="stream"><option value="sub">sub (recommended)</option><option value="main">main</option></select></label>
  <label>Name (optional)<input id="name" placeholder="Lobby DVR"></label>

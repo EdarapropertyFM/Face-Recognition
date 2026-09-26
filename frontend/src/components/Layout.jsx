@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useCallback, useEffect } from 'react';
 import {
   LayoutDashboard, Tv2, Camera, Building2, ClipboardList,
-  Bell, Crosshair, Users, FileText, BarChart3,
+  Bell, Crosshair, Users, BarChart3,
   ShieldCheck, Settings, Moon, Sun, LogOut, ScanFace
 } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
@@ -28,7 +28,6 @@ const NAV_GROUPS = [
     items: [
       { key: 'enrollments', path: '/enrollments',  icon: <ClipboardList size={18} /> },
       { key: 'facedb',      path: '/facedb',       icon: <Users size={18} /> },
-      { key: 'incidents',   path: '/incidents',    icon: <FileText size={18} /> },
       { key: 'reports',     path: '/reports',      icon: <BarChart3 size={18} /> },
     ],
   },
@@ -69,7 +68,7 @@ export default function Layout({ children }) {
     document.documentElement.lang = isRtl ? 'ar' : 'en';
   }, [isRtl]);
 
-  const [badges, setBadges] = useState({ alerts: null, enrollments: null, incidents: null, facedb: null });
+  const [badges, setBadges] = useState({ alerts: null, enrollments: null, facedb: null });
 
   const loadBadges = useCallback(async () => {
     if (!session) return;
@@ -80,7 +79,6 @@ export default function Layout({ children }) {
           setBadges({
             alerts: data.alerts || null,
             enrollments: data.enrollments || null,
-            incidents: data.incidents || null,
             facedb: data.facedb || null
           });
         }

@@ -5,7 +5,7 @@ import { ZONES } from '../store';
 import { apiFetch } from '../api';
 import { useAuth } from '../context/useAuth';
 
-const BRANDS = ['hikvision', 'dahua', 'uniview', 'xmeye', 'custom'];
+const BRANDS = ['hikvision', 'dahua', 'uniview', 'xmeye', 'tvt', 'custom'];
 
 const EMPTY_FORM = {
   id: '', displayName: '', buildingCode: '', zone: 0, location: '',

@@ -4,7 +4,7 @@ import { Search, UserPlus, Shield, Users, Lock, Eye, Edit2, X, Info } from 'luci
 import { USERS, ROLES } from '../store';
 import { displayName } from '../utils/display';
 
-const MODULES = ['dashboard','livewall','cameras','buildings','enrollments','alerts','track','facedb','incidents','reports','admin','settings'];
+const MODULES = ['dashboard','livewall','cameras','buildings','enrollments','alerts','track','facedb','reports','admin','settings'];
 const ROLE_LIST = Object.keys(ROLES);
 
 export default function AdminPage() {

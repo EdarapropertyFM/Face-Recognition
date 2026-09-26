@@ -11,6 +11,7 @@ plain text there: acceptable for a prototype on one laptop, not beyond.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -21,6 +22,8 @@ from urllib.parse import quote
 import cv2
 
 from .config import Config
+
+log = logging.getLogger(__name__)
 
 # Ask FFmpeg to use RTSP over TCP. UDP (the default) drops packets on Wi-Fi
 # and busy LANs, which shows up as grey smears and "frame grab failed".
@@ -50,7 +53,7 @@ def open_rtsp(url: str) -> cv2.VideoCapture:
         cv2.CAP_PROP_READ_TIMEOUT_MSEC, RTSP_READ_TIMEOUT_MS,
     ])
 
-# {user} {pass} {host} {port} {ch} {sub}   sub = 0 main stream, 1 sub stream
+# {user} {pass} {host} {port} {ch} {sub} {sub1} {stream}   sub = 0 main, 1 sub; stream = "main"/"sub"
 URL_TEMPLATES: dict[str, str] = {
     # Hikvision / HiLook / Ezviz / many rebrands. Channel 1 main = 101, sub = 102.
     "hikvision": "rtsp://{user}:{pass}@{host}:{port}/Streaming/Channels/{ch}0{sub1}",
@@ -60,6 +63,8 @@ URL_TEMPLATES: dict[str, str] = {
     "uniview": "rtsp://{user}:{pass}@{host}:{port}/unicast/c{ch}/s{sub}/live",
     # XMeye / generic Chinese DVRs (H.264 DVR boards).
     "xmeye": "rtsp://{user}:{pass}@{host}:{port}/user={user}&password={pass}&channel={ch}&stream={sub}.sdp?",
+    # TVT (and its rebrands). RTSP server banner: "TVT RTSP Server".
+    "tvt": "rtsp://{user}:{pass}@{host}:{port}/chID={ch}&streamType={stream}",
     # Anything else: supply url_template yourself.
     "custom": "",
 }
@@ -92,7 +97,8 @@ class DVRConfig:
         sub = 0 if stream == "main" else 1
         return self.template().format(
             user=quote(self.username, safe=""), **{"pass": quote(self.password, safe="")},
-            host=self.host, port=self.port, ch=channel, sub=sub, sub1=sub + 1)
+            host=self.host, port=self.port, ch=channel, sub=sub, sub1=sub + 1,
+            stream="main" if sub == 0 else "sub")
 
     def label(self, channel: int, stream: str | None = None) -> str:
         """Human-readable, credential-free description for HUDs and logs."""
@@ -173,16 +179,36 @@ def dvr_path(cfg: Config) -> Path:
 
 
 def load_dvr(cfg: Config) -> DVRConfig | None:
+    """The saved DVR, or None when there is none to load.
+
+    An unreadable file returns None rather than raising: this is one optional
+    setting, and letting it abort startup takes down recognition, enrolment
+    and every camera because a single JSON file got truncated.
+    """
     p = dvr_path(cfg)
     if not p.exists():
         return None
-    return DVRConfig(**json.loads(p.read_text(encoding="utf-8")))
+    try:
+        raw = p.read_text(encoding="utf-8").strip()
+        if not raw:
+            raise ValueError("file is empty")
+        return DVRConfig(**json.loads(raw))
+    except (OSError, ValueError, TypeError) as error:
+        # ValueError covers JSONDecodeError; TypeError covers a JSON object
+        # whose keys do not match DVRConfig.
+        log.warning("ignoring unreadable %s (%s). Re-save the DVR at /dvr/setup.",
+                    p, error)
+        return None
 
 
 def save_dvr(cfg: Config, dvr: DVRConfig) -> None:
+    """Write atomically: a crash or a kill mid-write would otherwise leave a
+    truncated file behind, which is exactly how this ends up empty."""
     p = dvr_path(cfg)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(asdict(dvr), indent=2), encoding="utf-8")
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(asdict(dvr), indent=2), encoding="utf-8")
+    tmp.replace(p)
 
 
 def clear_dvr(cfg: Config) -> None:

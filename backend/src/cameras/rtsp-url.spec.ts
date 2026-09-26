@@ -43,7 +43,7 @@ describe('buildRtspUrl', () => {
   });
 
   it('offers the brands the DVR page offers', () => {
-    expect(RTSP_BRANDS).toEqual(['hikvision', 'dahua', 'uniview', 'xmeye', 'custom']);
+    expect(RTSP_BRANDS).toEqual(['hikvision', 'dahua', 'uniview', 'xmeye', 'tvt', 'custom']);
   });
 });
 

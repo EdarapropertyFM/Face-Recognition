@@ -96,7 +96,7 @@ export default function FaceDBPage() {
                     <button className="btn ghost sm" onClick={() => navigate('/track')}>Track</button>
                     {f.type === 'unknown' && <button className="btn sm">Identify</button>}
                     {(f.type === 'unknown' || f.type === 'known') && (
-                      <button className="btn red sm" onClick={() => navigate('/incidents')}>Ban</button>
+                      <button className="btn red sm" disabled title="Available in phase 2">Ban</button>
                     )}
                   </div>
                 </td>

@@ -14,7 +14,6 @@ import EnrollmentPage from './pages/EnrollmentPage';
 import AlertsPage     from './pages/AlertsPage';
 import TrackPage      from './pages/TrackPage';
 import FaceDBPage     from './pages/FaceDBPage';
-import IncidentsPage  from './pages/IncidentsPage';
 import ReportsPage    from './pages/ReportsPage';
 import AdminPage      from './pages/AdminPage';
 import SettingsPage   from './pages/SettingsPage';
@@ -42,7 +41,6 @@ function AppRoutes() {
       <Route path="/alerts"      element={<Protected module="alerts">      <AlertsPage />      </Protected>} />
       <Route path="/track"       element={<Protected module="track">       <TrackPage />       </Protected>} />
       <Route path="/facedb"      element={<Protected module="facedb">      <FaceDBPage />      </Protected>} />
-      <Route path="/incidents"   element={<Protected module="incidents">   <IncidentsPage />   </Protected>} />
       <Route path="/reports"     element={<Protected module="reports">     <ReportsPage />     </Protected>} />
       <Route path="/admin"       element={<Protected module="admin">       <AdminPage />       </Protected>} />
       <Route path="/settings"    element={<Protected module="settings">    <SettingsPage />    </Protected>} />

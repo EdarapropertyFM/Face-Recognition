@@ -4,12 +4,12 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
 import {
   CAMERAS_ONLINE, CAMERAS_TOTAL,
-  DETECTIONS, ALERTS, INCIDENTS, FACES
+  DETECTIONS, ALERTS, FACES
 } from '../store';
 import { apiFetch } from '../api';
 import { useRealtime } from '../hooks/useRealtime';
 import { 
-  Camera, Users, UserX, UserMinus, ShieldAlert, AlertTriangle, Building2, Bell, FileText
+  Camera, Users, UserX, UserMinus, ShieldAlert, Building2, Bell
 } from 'lucide-react';
 import { displayName, zoneLabel } from '../utils/display';
 
@@ -24,14 +24,12 @@ export default function DashboardPage() {
   useRealtime(() => loadSummary(), Boolean(session));
   const metrics = summary?.metrics;
   const liveAlerts = summary?.alerts ?? ALERTS;
-  const liveIncidents = summary?.incidents ?? INCIDENTS;
   const liveFaces = summary?.faces ?? FACES;
   const liveBuildings = summary?.buildings ?? [];
 
   const owners       = DETECTIONS.filter(d => d.type === 'known' || d.type === 'staff').length;
   const strangers    = DETECTIONS.filter(d => d.type === 'unknown').length;
   const watchHits    = DETECTIONS.filter(d => d.type === 'watch').length;
-  const openInc      = metrics?.openIncidents ?? INCIDENTS.filter(i => i.status !== 'closed').length;
   const banned       = metrics?.watchlist ?? FACES.filter(f => f.type === 'watch').length;
   const totalCameras = metrics?.totalCameras ?? CAMERAS_TOTAL;
   const onlineCameras = metrics?.onlineCameras ?? CAMERAS_ONLINE;
@@ -93,17 +91,6 @@ export default function DashboardPage() {
 
         <div className="kpi-card glass-panel">
           <div className="kpi-header">
-            <span className="kpi-icon amber"><AlertTriangle size={18} /></span>
-            <div className="lab">{t('dashboard.open_incidents')}</div>
-          </div>
-          <div className="kpi-body">
-            <div className="val m">{openInc}</div>
-            <div className="tr">Requires action</div>
-          </div>
-        </div>
-
-        <div className="kpi-card glass-panel">
-          <div className="kpi-header">
             <span className="kpi-icon red"><UserMinus size={18} /></span>
             <div className="lab">{t('dashboard.banned')}</div>
           </div>
@@ -136,23 +123,6 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        {/* Incidents panel */}
-        <div className="panel glass-panel">
-          <h3><FileText size={18} color="var(--amber)" /> {t('nav.incidents')} — recent</h3>
-          <table>
-            <thead><tr><th>ID</th><th>SEF</th><th>Face</th><th>Status</th></tr></thead>
-            <tbody>
-              {liveIncidents.slice(0, 4).map(i => (
-                <tr key={i.id} onClick={() => navigate('/incidents')} style={{ cursor: 'pointer' }}>
-                  <td className="mono">{i.id}</td>
-                  <td><span className="sefbadge">{i.sef}</span></td>
-                  <td className="mono">{i.face}</td>
-                  <td><span className={`tag ${i.status}`}>{i.status}</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       </div>
 
       {/* Buildings mini overview */}
@@ -170,7 +140,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="note" style={{ marginTop: 16 }}>
-        🔒 <b>Owner</b> = enrolled + consented, matched like LPR plates. <b>Stranger</b> = anonymous track-ID, no identity, auto-purged 90d unless incident-linked. <b>Watchlist</b> = banned → alert on sight.
+        🔒 <b>Owner</b> = enrolled + consented, matched like LPR plates. <b>Stranger</b> = anonymous track-ID, no identity, auto-purged after 90d. <b>Watchlist</b> = banned → alert on sight.
       </div>
     </>
   );

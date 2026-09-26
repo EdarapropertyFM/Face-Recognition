@@ -11,7 +11,7 @@
  * passwords, so its escaping rules need to be pinned down by tests.
  */
 
-/** Placeholders: {user} {pass} {host} {port} {ch} {sub} {sub1} */
+/** Placeholders: {user} {pass} {host} {port} {ch} {sub} {sub1} {stream} */
 export const RTSP_TEMPLATES: Record<string, string> = {
   // Hikvision / HiLook / Ezviz and many rebrands. Channel 1 main = 101, sub = 102.
   hikvision: 'rtsp://{user}:{pass}@{host}:{port}/Streaming/Channels/{ch}0{sub1}',
@@ -21,6 +21,8 @@ export const RTSP_TEMPLATES: Record<string, string> = {
   uniview: 'rtsp://{user}:{pass}@{host}:{port}/unicast/c{ch}/s{sub}/live',
   // XMeye / generic Chinese DVR boards.
   xmeye: 'rtsp://{user}:{pass}@{host}:{port}/user={user}&password={pass}&channel={ch}&stream={sub}.sdp?',
+  // TVT (and its rebrands). RTSP server banner: "TVT RTSP Server".
+  tvt: 'rtsp://{user}:{pass}@{host}:{port}/chID={ch}&streamType={stream}',
   // Anything else: the operator supplies urlTemplate.
   custom: '',
 };
@@ -59,8 +61,9 @@ export function buildRtspUrl(parts: RtspParts): string {
     ch: String(parts.channel ?? 1),
     sub: String(sub),
     sub1: String(sub + 1),
+    stream: sub === 0 ? 'main' : 'sub',
   };
-  return template.replace(/\{(user|pass|host|port|ch|sub1|sub)\}/g, (_, key) => values[key]);
+  return template.replace(/\{(user|pass|host|port|ch|sub1|sub|stream)\}/g, (_, key) => values[key]);
 }
 
 /** The same URL with the password replaced, for logs and error messages. */

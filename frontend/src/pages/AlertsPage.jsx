@@ -25,7 +25,7 @@ export default function AlertsPage() {
     .catch(() => setAlerts(ALERTS)), []);
   useEffect(() => { loadAlerts(); }, [loadAlerts]);
   useRealtime((event) => {
-    if (event.type.startsWith('alert.') || event.type === 'incident.created') loadAlerts();
+    if (event.type.startsWith('alert.')) loadAlerts();
   }, Boolean(session));
 
   const filtered = alerts.filter(a =>
@@ -37,14 +37,6 @@ export default function AlertsPage() {
   const step = async (id, to) => {
     const res = await apiFetch(`/alerts/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: to, actor: session.user }) });
     if (res.ok) await loadAlerts();
-  };
-
-  const createIncident = async (alert) => {
-    const res = await apiFetch('/incidents', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ alertId: alert.id, sef: 'SEF-01-20', title: ['Security alert investigation', 'تحقيق في تنبيه أمني'], face: alert.face, zone: alert.zone, when: alert.when, officer: [session.user, session.user], desc: [`Created from alert ${alert.id}.`, `تم إنشاؤها من التنبيه ${alert.id}.`] }),
-    });
-    if (res.ok) { await loadAlerts(); navigate('/incidents'); }
   };
 
   return (
@@ -85,7 +77,7 @@ export default function AlertsPage() {
           if (editable && !done) {
             if (a.status === 'new')      actions = <button className="btn sm" onClick={() => step(a.id, 'ack')}>Ack</button>;
             if (a.status === 'ack')      actions = <><button className="btn sm" onClick={() => navigate('/track')}>Track</button><button className="btn sm" onClick={() => step(a.id, 'actioned')}>Action</button></>;
-            if (a.status === 'actioned') actions = <><button className="btn sm red" onClick={() => createIncident(a)}>Incident</button><button className="btn sm" onClick={() => step(a.id, 'resolved')}>Resolve</button></>;
+            if (a.status === 'actioned') actions = <button className="btn sm" onClick={() => step(a.id, 'resolved')}>Resolve</button>;
           }
 
           return (

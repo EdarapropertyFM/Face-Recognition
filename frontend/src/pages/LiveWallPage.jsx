@@ -1,14 +1,24 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Expand, HardDrive, LoaderCircle, Monitor, Radio, RefreshCw, VideoOff } from 'lucide-react';
 import { ZONES } from '../store';
 import { apiFetch, apiUrl } from '../api';
 import { useRealtime } from '../hooks/useRealtime';
+import { useOnScreen, useStreamSlot } from '../hooks/useStreamSlot';
+import { zoneLabel } from '../utils/display';
 
 function CameraFeed({ camera, lang, refreshKey }) {
   const [streamUrl, setStreamUrl] = useState('');
   const [state, setState] = useState(camera.rtspConfigured ? 'connecting' : 'unconfigured');
-  const location = camera.location || ZONES[camera.zone]?.[lang] || `Zone ${camera.zone}`;
+  const location = camera.location || zoneLabel(camera.zone, lang);
+  const tileRef = useRef(null);
+  const onScreen = useOnScreen(tileRef);
+  const [failed, setFailed] = useState(false);
+  const streamable = camera.rtspConfigured && camera.enabled !== false;
+  // Only on-screen tiles hold a connection, and only a few at a time. A tile
+  // that failed stops asking for one: an unreachable camera would otherwise
+  // hold its slot for good and the queued tiles behind it would never load.
+  const slot = useStreamSlot(streamable && onScreen && !failed);
 
   const requestStream = useCallback(async () => {
     if (!camera.rtspConfigured || camera.enabled === false) {
@@ -20,28 +30,44 @@ function CameraFeed({ camera, lang, refreshKey }) {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || 'Playback authorization failed');
       setStreamUrl(apiUrl(`/cameras/stream/${encodeURIComponent(data.playbackId)}?token=${encodeURIComponent(data.token)}`));
-    } catch { setState('error'); setStreamUrl(''); }
+    } catch { setState('error'); setFailed(true); setStreamUrl(''); }
   }, [camera.enabled, camera.id, camera.rtspConfigured]);
 
   useEffect(() => {
+    if (!slot) {
+      // Give the connection back while off screen or waiting for a slot.
+      // oxlint-disable-next-line react/set-state-in-effect -- releases an external connection
+      setStreamUrl('');
+      if (streamable && !failed) setState('queued');
+      return undefined;
+    }
     // oxlint-disable-next-line react/set-state-in-effect -- synchronize playback authorization
     requestStream();
     const renewal = window.setInterval(requestStream, 4 * 60 * 1000);
     return () => window.clearInterval(renewal);
-  }, [requestStream, refreshKey]);
+  }, [requestStream, refreshKey, slot, streamable, failed]);
+
+  // A refresh from the toolbar gives every failed tile another chance.
+  useEffect(() => { if (refreshKey) setFailed(false); }, [refreshKey]);
+
+  const retry = useCallback(() => { setFailed(false); setState('connecting'); }, []);
 
   const fullscreen = (event) => {
     event.stopPropagation();
     event.currentTarget.closest('.cam')?.requestFullscreen?.();
   };
 
-  return <div className="cam real-feed">
+  return <div className="cam real-feed" ref={tileRef}>
     <div className="feed">
-      {streamUrl && <img src={streamUrl} alt={`${camera.displayName || camera.id} live stream`} onLoad={() => setState('live')} onError={() => setState('error')} />}
+      {streamUrl && <img src={streamUrl} alt={`${camera.displayName || camera.id} live stream`} onLoad={() => setState('live')} onError={() => { setState('error'); setFailed(true); }} />}
       {state !== 'live' && <div className="feed-state">
         {state === 'connecting' ? <LoaderCircle size={28} className="feed-spinner" /> : <VideoOff size={30} />}
-        <b>{state === 'connecting' ? (lang ? 'جاري الاتصال…' : 'Connecting…') : state === 'unconfigured' ? (lang ? 'مصدر RTSP غير مُعد' : 'RTSP source not configured') : state === 'disabled' ? (lang ? 'الكاميرا متوقفة' : 'Camera disabled') : (lang ? 'تعذر فتح البث' : 'Stream unavailable')}</b>
-        {state === 'error' && <button className="btn ghost sm" onClick={requestStream}><RefreshCw size={13} /> Retry</button>}
+        <b>{state === 'connecting' ? (lang ? 'جاري الاتصال…' : 'Connecting…')
+          : state === 'queued' ? (lang ? 'في الانتظار…' : 'Waiting for a free connection…')
+          : state === 'unconfigured' ? (lang ? 'مصدر RTSP غير مُعد' : 'RTSP source not configured')
+          : state === 'disabled' ? (lang ? 'الكاميرا متوقفة' : 'Camera disabled')
+          : (lang ? 'تعذر فتح البث' : 'Stream unavailable')}</b>
+        {state === 'error' && <button className="btn ghost sm" onClick={retry}><RefreshCw size={13} /> Retry</button>}
       </div>}
     </div>
     <div className="lbl"><Radio size={12} /> {camera.displayName || camera.id} · {location}</div>

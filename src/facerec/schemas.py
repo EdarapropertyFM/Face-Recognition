@@ -102,7 +102,7 @@ class DVRIn(BaseModel):
     username: str = Field(min_length=1)
     password: str
     port: int = Field(default=554, ge=1, le=65535)
-    brand: str = Field(default="hikvision", description="hikvision | dahua | uniview | xmeye | custom")
+    brand: str = Field(default="hikvision", description="hikvision | dahua | uniview | xmeye | tvt | custom")
     channels: int = Field(default=8, ge=1, le=64)
     stream: str = Field(default="sub", pattern="^(main|sub)$",
                         description="sub = lower-res stream (recommended for detection)")

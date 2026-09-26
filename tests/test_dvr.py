@@ -1,7 +1,9 @@
 import pytest
 
 from facerec.config import Config
-from facerec.dvr import URL_TEMPLATES, DVRConfig, clear_dvr, load_dvr, resolve_source, save_dvr
+from facerec.dvr import (
+    URL_TEMPLATES, DVRConfig, clear_dvr, dvr_path, load_dvr, resolve_source, save_dvr,
+)
 
 
 def test_hikvision_urls():
@@ -75,3 +77,65 @@ def test_backend_templates_match_python():
         # Python uses {sub1} via str.format; the TS copy spells it the same way.
         assert found.group(1) == expected, (
             f"template drift for {brand!r}:\n  python: {expected}\n  ts    : {found.group(1)}")
+
+
+def test_tvt_urls():
+    d = DVRConfig(host="h", username="u", password="p", brand="tvt")
+    assert d.rtsp_url(2) == "rtsp://u:p@h:554/chID=2&streamType=sub"
+    assert d.rtsp_url(2, "main").endswith("streamType=main")
+
+
+def test_unreadable_dvr_file_does_not_break_startup(tmp_path):
+    """A truncated or corrupt dvr.json must not abort the whole service.
+    This actually happened: the file was left 0 bytes by a kill mid-write, and
+    the AI refused to boot — no recognition, no enrolment, no cameras."""
+    cfg = Config(data_dir=tmp_path)
+    path = dvr_path(cfg)
+
+    for broken in ["", "   ", "{not json", '"a string"', '{"host": "h"}']:
+        path.write_text(broken, encoding="utf-8")
+        assert load_dvr(cfg) is None, f"should ignore {broken!r}"
+
+    # A good file still loads.
+    save_dvr(cfg, DVRConfig(host="h", username="u", password="p"))
+    assert load_dvr(cfg).host == "h"
+
+
+def test_save_dvr_is_atomic(tmp_path):
+    """Written via a temp file and renamed, so an interrupted save can never
+    leave a half-written or empty dvr.json in place."""
+    cfg = Config(data_dir=tmp_path)
+    save_dvr(cfg, DVRConfig(host="first", username="u", password="p"))
+    original = dvr_path(cfg).read_text(encoding="utf-8")
+
+    save_dvr(cfg, DVRConfig(host="second", username="u", password="p"))
+    assert load_dvr(cfg).host == "second"
+    assert original != dvr_path(cfg).read_text(encoding="utf-8")
+    # No temp file left behind.
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_open_source_uses_rtsp_timeouts(monkeypatch, tmp_path):
+    """open_source built its own VideoCapture and so ignored open_rtsp's
+    connect/read timeouts. FFmpeg then fell back to its 30 s default: an
+    unreachable camera held a grabber thread for half a minute after the
+    request had already returned 503, and the threads piled up per request."""
+    from facerec import live
+
+    called = {}
+
+    class FakeCapture:
+        def isOpened(self):
+            return True
+
+    def fake_open_rtsp(url):
+        called["url"] = url
+        return FakeCapture()
+
+    import facerec.dvr as dvr_module
+    monkeypatch.setattr(dvr_module, "open_rtsp", fake_open_rtsp)
+    monkeypatch.setattr(live, "load_config", lambda: Config(data_dir=tmp_path), raising=False)
+
+    cfg = Config(data_dir=tmp_path)
+    assert isinstance(live.open_source("rtsp://u:p@h/x", cfg), FakeCapture)
+    assert called["url"] == "rtsp://u:p@h/x"
