@@ -144,6 +144,13 @@ class DVRChannelsOut(BaseModel):
     channels: list[ChannelOut]
 
 
+class MonitorIn(BaseModel):
+    """Start unattended recognition on one camera."""
+    camera_id: str = Field(min_length=1, max_length=64)
+    source: str = Field(min_length=8, max_length=2048, pattern=r"^rtsps?://")
+    zone: int = Field(default=0, ge=0)
+
+
 class CameraProbeIn(BaseModel):
     source: str = Field(min_length=8, max_length=2048, pattern=r"^rtsps?://")
     detect: bool = False

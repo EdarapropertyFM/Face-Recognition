@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { EMPTY_ENROLLMENT_DRAFT, sanitizeStoredDraft, validateResidenceDraft } from '../utils/enrollment';
+import {
+  EMPTY_ENROLLMENT_DRAFT, draftResidences, newResidence, sanitizeStoredDraft, validateResidenceDraft,
+} from '../utils/enrollment';
 import { compressImageFile } from '../utils/image';
 import {
   clearStoredDraft, isResumable, readStoredDraft, sanitizeStoredCaptures, writeStoredDraft,
@@ -41,10 +43,40 @@ export function useEnrollmentDraft() {
     clearFieldError(field);
   };
 
-  const updateBuilding = (building) => {
-    setDraft((current) => ({ ...current, building, unit: '' }));
-    clearFieldError('building');
-    clearFieldError('unit');
+  // A resident may hold more than one unit. The list is the truth; the flat
+  // building/unit pair mirrors the first one because the rest of the system
+  // (review screen, submitted payload, reports) still reads it.
+  const withPrimary = (residences) => ({
+    residences,
+    building: residences[0]?.building ?? '',
+    unit: residences[0]?.unit ?? '',
+  });
+
+  const updateResidence = (id, patch) => {
+    setDraft((current) => {
+      const residences = draftResidences(current).map((residence) => {
+        if (residence.id !== id) return residence;
+        const next = { ...residence, ...patch };
+        // Changing a level invalidates the ones below it.
+        if (patch.project !== undefined) { next.building = ''; next.unit = ''; }
+        else if (patch.building !== undefined) { next.unit = ''; }
+        return next;
+      });
+      return { ...current, ...withPrimary(residences) };
+    });
+    clearFieldError('residences');
+  };
+
+  const addResidence = () => setDraft((current) => ({
+    ...current, ...withPrimary([...draftResidences(current), newResidence()]),
+  }));
+
+  const removeResidence = (id) => {
+    setDraft((current) => {
+      const remaining = draftResidences(current).filter((residence) => residence.id !== id);
+      return { ...current, ...withPrimary(remaining.length ? remaining : [newResidence()]) };
+    });
+    clearFieldError('residences');
   };
 
   const setIdentityDocument = (file) => {
@@ -60,8 +92,8 @@ export function useEnrollmentDraft() {
       .catch(() => undefined);      // submit re-compresses from the File if this fails
   };
 
-  const validateResidence = (buildings) => {
-    const nextErrors = validateResidenceDraft(draft, identityDocument, buildings);
+  const validateResidence = (projects) => {
+    const nextErrors = validateResidenceDraft(draft, identityDocument, projects);
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };
@@ -80,7 +112,7 @@ export function useEnrollmentDraft() {
 
   const clearSavedDraft = useCallback(() => {
     clearStoredDraft();
-    setDraft({ ...EMPTY_ENROLLMENT_DRAFT, family: [], cars: [] });
+    setDraft({ ...EMPTY_ENROLLMENT_DRAFT, family: [], cars: [], residences: [newResidence()] });
     setFaceCaptures([]);
     setAiPersonId(null);
     setIdentityDocumentState(null);
@@ -88,7 +120,8 @@ export function useEnrollmentDraft() {
   }, []);
 
   return {
-    draft, errors, identityDocument, faceCaptures, aiPersonId, step, updateField, updateBuilding,
+    draft, errors, identityDocument, faceCaptures, aiPersonId, step, updateField,
+    updateResidence, addResidence, removeResidence,
     setIdentityDocument, updateFaceCaptures, setAiPersonId, setFamily, setCars, clearSavedDraft,
     goToStep: setStep, validateResidence, resumable, resumeStep,
   };

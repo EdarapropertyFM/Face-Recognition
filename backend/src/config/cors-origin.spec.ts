@@ -51,3 +51,17 @@ describe('isAllowedOrigin', () => {
     expect(isAllowedOrigin('http://x.ngrok-free.dev', none)).toBe(false);   // http, not https
   });
 });
+
+describe('link-local addresses', () => {
+  it('allows 169.254.x.x, which Windows assigns without DHCP', () => {
+    // The dashboard gets opened on exactly this while testing; blocking it
+    // refused the realtime event stream, which then retried forever.
+    expect(isAllowedOrigin('http://169.254.25.98:5174', new Set())).toBe(true);
+    expect(isAllowedOrigin('http://169.254.1.1:3000', new Set())).toBe(true);
+  });
+
+  it('still rejects a public address that merely looks similar', () => {
+    expect(isAllowedOrigin('http://169.25.4.98:5174', new Set())).toBe(false);
+    expect(isAllowedOrigin('http://evil.com', new Set())).toBe(false);
+  });
+});

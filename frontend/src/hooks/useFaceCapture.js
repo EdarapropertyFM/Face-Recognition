@@ -2,17 +2,30 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../api';
 
 export const FACE_POSES = [
-  { key: 'front', title: 'Look straight at the camera', short: 'Front' },
-  { key: 'left', title: 'Turn your head slightly left', short: 'Left' },
-  { key: 'right', title: 'Turn your head slightly right', short: 'Right' },
-  { key: 'stepBack', title: 'Step back a little', short: 'Step back' },
-  { key: 'betterLighting', title: 'Face a window or a light', short: 'Better light' },
+  { key: 'front', title: 'Look straight at the camera and keep your eyes open', short: 'Front' },
+  { key: 'left', title: 'Slowly turn your head to one side', short: 'Side 1' },
+  { key: 'right', title: 'Now slowly turn your head to the other side', short: 'Side 2' },
+  { key: 'stepBack', title: 'Look straight and move back a little', short: 'Step back' },
+  { key: 'betterLighting', title: 'Face the light, look straight, eyes open', short: 'Lighting' },
 ];
 
-// Matches the dwell behavior used by the Python AI enrolment session.
+// Biometric capture: each pose is verified from the AI's own measurements
+// (yaw, pitch, face width, sharpness) and must be held steady before the
+// photo is taken, so the five templates really differ in angle and scale.
 const CHECK_INTERVAL_MS = 400;
-const REQUIRED_STABLE_CHECKS = 2;
-const MIN_CAPTURE_GAP_MS = 1500;
+const REQUIRED_STABLE_CHECKS = 3;        // ~1.2 s holding the correct pose
+const MIN_CAPTURE_GAP_MS = 1500;         // time to move into the next pose
+const MAX_YAW_JITTER_DEG = 10;           // head must be still, not mid-turn
+const MIN_BLUR_SCORE = 62;               // just above the AI minimum (60); webcams reach 60-75
+
+const FRONTAL_YAW = 14;
+const FRONTAL_PITCH = 20;
+const SIDE_YAW_MIN = 12;                 // a real turn...
+const SIDE_YAW_MAX = 33;                 // ...but both eyes stay visible (AI rejects > 35)
+const STEP_BACK_RATIO = 0.9;             // face at most 90% of its front width
+// Stuck on one pose this long: accept any good-quality frame so nobody is
+// locked out of registering by a hard pose (glasses, a fixed camera...).
+const POSE_FALLBACK_MS = 15000;
 
 // The AI rejects faces narrower than detection.min_face_size_px (80px), and a
 // face typically spans about a fifth of a centred head-and-shoulders frame. At
@@ -33,27 +46,70 @@ function frameFromVideo(video) {
   const size = Math.min(CAPTURE_SIZE, Math.round(sourceSize));
   canvas.width = size;
   canvas.height = size;
-  canvas.getContext('2d', { alpha: false }).drawImage(
-    video, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size,
-  );
-  return canvas.toDataURL('image/jpeg', 0.88);
+  const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
+  ctx.drawImage(video, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
+  // Mean brightness of the centre, where the face is: catches a dark or
+  // blown-out face that the AI would still "detect".
+  const c = Math.round(size * 0.3);
+  const px = ctx.getImageData(c, c, size - 2 * c, size - 2 * c).data;
+  let sum = 0;
+  for (let i = 0; i < px.length; i += 16) sum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+  return { image: canvas.toDataURL('image/jpeg', 0.92), brightness: sum / (px.length / 16) };
 }
 
 function qualityHint(quality) {
   const reason = quality?.reasons?.[0] ?? '';
   if (reason.startsWith('too small')) return 'Move closer to the camera';
-  if (reason.startsWith('too blurry')) return 'Hold the phone steady';
-  if (reason.startsWith('too turned') || reason.startsWith('too tilted')) return 'Turn slightly toward the camera';
+  if (reason.startsWith('too blurry')) return 'Hold still, the photo is blurry';
+  if (reason.startsWith('too turned')) return 'Turned too far, come back a little';
+  if (reason.startsWith('too tilted')) return 'Keep your chin level';
   return reason || 'Adjust your face inside the oval';
 }
 
-function poseResult(pose, quality, captures) {
+/**
+ * Whether this frame satisfies the current pose. `captures` are the photos
+ * already taken, so later poses are judged against them (the second side must
+ * be opposite the first; step back must be smaller than the front photo).
+ */
+function poseResult(pose, quality, captures, brightness, relaxed = false) {
   if (!quality?.passed) return { accepted: false, hint: qualityHint(quality) };
-  // The AI model uses each pose as a friendly prompt, not as another strict
-  // rejection gate. This avoids confusing left/right failures on phone cameras.
-  void pose;
-  void captures;
-  return { accepted: true, hint: 'Good quality — hold still' };
+  if (relaxed) return { accepted: true, hint: 'Good, hold still' };
+  if (quality.blur_score < MIN_BLUR_SCORE) return { accepted: false, hint: 'Hold still, the photo is not sharp yet' };
+  if (brightness < 55) return { accepted: false, hint: 'Your face is too dark, face a light' };
+  if (brightness > 230) return { accepted: false, hint: 'Too much light on your face, move away from direct light' };
+
+  const yaw = quality.yaw_deg;
+  const pitch = quality.pitch_deg;
+  const frontal = Math.abs(yaw) <= FRONTAL_YAW && Math.abs(pitch) <= FRONTAL_PITCH;
+  const front = captures.find((c) => c.key === 'front')?.quality;
+  const side1 = captures.find((c) => c.key === 'left')?.quality;
+
+  switch (pose.key) {
+    case 'front':
+      if (Math.abs(pitch) > FRONTAL_PITCH) return { accepted: false, hint: 'Keep your chin level' };
+      if (Math.abs(yaw) > FRONTAL_YAW) return { accepted: false, hint: 'Look straight at the camera' };
+      return { accepted: true, hint: 'Good, hold still with your eyes open' };
+    case 'left':
+      if (Math.abs(yaw) < SIDE_YAW_MIN) return { accepted: false, hint: 'Turn your head further to one side' };
+      if (Math.abs(yaw) > SIDE_YAW_MAX) return { accepted: false, hint: 'A little less, keep both eyes visible' };
+      return { accepted: true, hint: 'Good angle, hold it' };
+    case 'right': {
+      const opposite = side1 ? Math.sign(yaw) !== Math.sign(side1.yaw_deg) : true;
+      if (!opposite || Math.abs(yaw) < SIDE_YAW_MIN) return { accepted: false, hint: 'Turn your head to the OTHER side' };
+      if (Math.abs(yaw) > SIDE_YAW_MAX) return { accepted: false, hint: 'A little less, keep both eyes visible' };
+      return { accepted: true, hint: 'Good angle, hold it' };
+    }
+    case 'stepBack':
+      if (!frontal) return { accepted: false, hint: 'Look straight at the camera' };
+      if (front && quality.face_width_px > front.face_width_px * STEP_BACK_RATIO) return { accepted: false, hint: 'Move back a little more' };
+      return { accepted: true, hint: 'Good distance, hold still' };
+    case 'betterLighting':
+      if (!frontal) return { accepted: false, hint: 'Look straight at the camera' };
+      if (brightness < 80) return { accepted: false, hint: 'Face a window or a light' };
+      return { accepted: true, hint: 'Good light, hold still with your eyes open' };
+    default:
+      return { accepted: frontal, hint: frontal ? 'Hold still' : 'Look straight at the camera' };
+  }
 }
 
 export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPersonId }) {
@@ -63,6 +119,8 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
   const checkingRef = useRef(false);
   const stableChecksRef = useRef(0);
   const lastCaptureAtRef = useRef(0);
+  const lastYawRef = useRef(null);
+  const poseStartedAtRef = useRef(Date.now());
   const capturesRef = useRef(initialCaptures);
   const poseIndexRef = useRef(initialCaptures.length);
   const mountedRef = useRef(true);
@@ -132,8 +190,9 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
 
   const checkFrame = useCallback(async () => {
     if (checkingRef.current || poseIndexRef.current >= FACE_POSES.length) return;
-    const image = frameFromVideo(videoRef.current);
-    if (!image) return;
+    const frame = frameFromVideo(videoRef.current);
+    if (!frame) return;
+    const { image, brightness } = frame;
 
     checkingRef.current = true;
     try {
@@ -170,7 +229,16 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
       }
 
       const currentPose = FACE_POSES[poseIndexRef.current];
-      const evaluation = poseResult(currentPose, result.quality, capturesRef.current);
+      const relaxed = Date.now() - poseStartedAtRef.current > POSE_FALLBACK_MS;
+      const evaluation = poseResult(currentPose, result.quality, capturesRef.current, brightness, relaxed);
+      // A head still turning between checks gives a smeared, in-between angle.
+      const yaw = result.quality?.yaw_deg;
+      const moving = lastYawRef.current !== null && Math.abs(yaw - lastYawRef.current) > MAX_YAW_JITTER_DEG;
+      lastYawRef.current = yaw;
+      if (evaluation.accepted && moving) {
+        evaluation.accepted = false;
+        evaluation.hint = 'Hold still...';
+      }
       setMessage(evaluation.hint);
 
       if (!evaluation.accepted) {
@@ -181,7 +249,7 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
 
       const now = Date.now();
       if (now - lastCaptureAtRef.current < MIN_CAPTURE_GAP_MS) {
-        setMessage(`${currentPose.short} saved — ${FACE_POSES[poseIndexRef.current + 1]?.title || 'finishing…'}`);
+        setMessage(`Photo saved. Next: ${currentPose.title}`);
         return;
       }
 
@@ -200,6 +268,7 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
 
       const nextIndex = poseIndexRef.current + 1;
       poseIndexRef.current = nextIndex;
+      poseStartedAtRef.current = Date.now() + MIN_CAPTURE_GAP_MS;
       setPoseIndex(nextIndex);
       if (nextIndex >= FACE_POSES.length) {
         stopCamera();
@@ -243,6 +312,7 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
       setCameraState('active');
+      poseStartedAtRef.current = Date.now();
       setMessage(FACE_POSES[poseIndexRef.current].title);
       intervalRef.current = window.setInterval(checkFrame, CHECK_INTERVAL_MS);
     } catch (cameraError) {
@@ -267,6 +337,8 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
     poseIndexRef.current = 0;
     stableChecksRef.current = 0;
     lastCaptureAtRef.current = 0;
+    lastYawRef.current = null;
+    poseStartedAtRef.current = Date.now();
     setCaptures([]);
     setPoseIndex(0);
     setHoldProgress(0);

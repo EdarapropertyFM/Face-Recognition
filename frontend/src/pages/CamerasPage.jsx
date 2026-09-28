@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Building2, Camera, CirclePlus, Cpu, Hash, List, LoaderCircle, MapPin, MapPinned, PlugZap, Power, Settings, ShieldCheck, Trash2, Video, Wifi, WifiOff, X } from 'lucide-react';
+import { Building2, Camera, CirclePlus, Clock, Cpu, Hash, Layers, List, LoaderCircle, MapPin, MapPinned, PlugZap, Power, Settings, ShieldCheck, Trash2, Video, Wifi, WifiOff, X } from 'lucide-react';
 import { ZONES } from '../store';
 import { apiFetch } from '../api';
 import { useAuth } from '../context/useAuth';
@@ -8,7 +8,7 @@ import { useAuth } from '../context/useAuth';
 const BRANDS = ['hikvision', 'dahua', 'uniview', 'xmeye', 'tvt', 'custom'];
 
 const EMPTY_FORM = {
-  id: '', displayName: '', buildingCode: '', zone: 0, location: '',
+  id: '', displayName: '', project: '', buildingCode: '', zone: 0, location: '',
   // 'dvr-all' adds every channel of a recorder at once (the usual case, and
   // the default); 'dvr' adds a single channel; 'url' takes a hand-written
   // RTSP URL for a camera that is not a known brand.
@@ -55,7 +55,8 @@ export default function CamerasPage() {
     setForm({
       ...EMPTY_FORM,
       id: camera.id, displayName: camera.displayName || camera.id,
-      buildingCode: camera.buildingCode || '', zone: camera.zone, location: camera.location || '',
+      project: camera.project || '', buildingCode: camera.buildingCode || '',
+      zone: camera.zone, location: camera.location || '',
       // A camera saved from a hand-written URL has no stored host.
       sourceMode: camera.host ? 'dvr' : 'url',
       host: camera.host || '', port: camera.port || 554, username: camera.username || 'admin',
@@ -72,12 +73,17 @@ export default function CamerasPage() {
   const importingWholeDvr = form.sourceMode === 'dvr-all';
 
   const zoneName = (camera) => camera.location || ZONES[camera.zone]?.[lang] || `Zone ${camera.zone}`;
-  const onlineTotal = cameras.filter((camera) => camera.status === 'online').length;
+  // 'health' is the stored status aged against its last check: a camera
+  // tested days ago is 'unknown', not 'online'. Counting the stored status
+  // instead reported feeds as live while the DVR was unplugged.
+  const health = (camera) => camera.health ?? camera.status;
+  const onlineTotal = cameras.filter((camera) => health(camera) === 'online').length;
+  const unknownTotal = cameras.filter((camera) => health(camera) === 'unknown').length;
   const filtered = useMemo(() => cameras.filter((camera) =>
-    (zoneFilter < 0 || camera.zone === zoneFilter) && (statusFilter === 'all' || camera.status === statusFilter) &&
+    (zoneFilter < 0 || camera.zone === zoneFilter) && (statusFilter === 'all' || health(camera) === statusFilter) &&
     `${camera.id} ${camera.displayName || ''} ${camera.location || ''}`.toLowerCase().includes(search.toLowerCase())
   ), [cameras, search, statusFilter, zoneFilter]);
-  const byZone = ZONES.map((zone, index) => ({ name: zone[lang], online: cameras.filter((camera) => camera.zone === index && camera.status === 'online').length, offline: cameras.filter((camera) => camera.zone === index && camera.status !== 'online').length }));
+  const byZone = ZONES.map((zone, index) => ({ name: zone[lang], online: cameras.filter((camera) => camera.zone === index && health(camera) === 'online').length, offline: cameras.filter((camera) => camera.zone === index && health(camera) !== 'online').length }));
 
   const saveCamera = async (event) => {
     event.preventDefault();
@@ -89,7 +95,8 @@ export default function CamerasPage() {
     const isNew = editing === 'new';
     const { sourceMode, ...fields } = form;
     const payload = {
-      id: fields.id, displayName: fields.displayName, buildingCode: fields.buildingCode,
+      id: fields.id, displayName: fields.displayName,
+      project: fields.project, buildingCode: fields.buildingCode,
       zone: Number(fields.zone), location: fields.location,
       codec: fields.codec, enabled: fields.enabled,
     };
@@ -143,7 +150,8 @@ export default function CamerasPage() {
           channels: Number(form.channels) || 1, stream: form.stream,
           urlTemplate: form.brand === 'custom' ? form.urlTemplate : undefined,
           idPrefix: (form.id || form.host).trim(), displayName: form.displayName || undefined,
-          zone: Number(form.zone), buildingCode: form.buildingCode || undefined,
+          zone: Number(form.zone), project: form.project || undefined,
+          buildingCode: form.buildingCode || undefined,
           location: form.location || undefined, probe: form.probeChannels === true,
         }),
       });
@@ -178,11 +186,11 @@ export default function CamerasPage() {
   return <>
     <div className="ph cameras-page-header"><div><h1>{t('nav.cameras')}</h1><div className="sub">{onlineTotal} {t('common.online')} · {cameras.length - onlineTotal} offline (of {cameras.length})</div></div><div className="grow" />{canEdit('cameras') && <button className="btn camera-add-button" onClick={openCreate}><span className="camera-add-icon"><CirclePlus size={18} /></span><span>{lang ? 'إضافة كاميرا' : 'Add camera'}<small>{lang ? 'إعداد مصدر بث جديد' : 'Configure a new stream'}</small></span></button>}</div>
     {loadError && <div className="note" style={{ borderColor: 'var(--red)', color: 'var(--red)' }}>{loadError}</div>}
-    <div className="kpis">{[[Video, 'Total Cameras', cameras.length, 'System-wide', 'blue'], [Wifi, 'Online', onlineTotal, 'Active feeds', 'green'], [WifiOff, 'Offline', cameras.length - onlineTotal, 'Needs attention', 'red'], [MapPin, 'Zones', new Set(cameras.map((camera) => camera.zone)).size, 'Monitored areas', 'amber']].map(([Icon, label, value, note, color]) => <div className="kpi-card glass-panel" key={label}><div className="kpi-header"><span className={`kpi-icon ${color}`}><Icon size={18} /></span><div className="lab">{label}</div></div><div className="kpi-body"><div className="val a">{value}</div><div className="tr">{note}</div></div></div>)}</div>
+    <div className="kpis">{[[Video, 'Total Cameras', cameras.length, 'System-wide', 'blue'], [Wifi, 'Online', onlineTotal, 'Active feeds', 'green'], [WifiOff, 'Offline', cameras.filter((camera) => health(camera) === 'offline').length, 'Confirmed down', 'red'], [Clock, 'Unchecked', unknownTotal, 'Not verified recently', 'amber'], [MapPin, 'Zones', new Set(cameras.map((camera) => camera.zone)).size, 'Monitored areas', 'amber']].map(([Icon, label, value, note, color]) => <div className="kpi-card glass-panel" key={label}><div className="kpi-header"><span className={`kpi-icon ${color}`}><Icon size={18} /></span><div className="lab">{label}</div></div><div className="kpi-body"><div className="val a">{value}</div><div className="tr">{note}</div></div></div>)}</div>
     <div className="two">
       <div className="panel glass-panel"><h3><MapPin size={18} color="var(--accent)" /> {lang ? 'حسب الموقع' : 'By location'}</h3><table><thead><tr><th>{lang ? 'المنطقة' : 'Zone'}</th><th>Online</th><th>Offline</th></tr></thead><tbody>{byZone.map((zone) => <tr key={zone.name}><td>{zone.name}</td><td>{zone.online}</td><td>{zone.offline || '—'}</td></tr>)}</tbody></table></div>
-      <div className="panel glass-panel"><h3><List size={18} color="var(--green)" /> {lang ? 'قائمة الكاميرات' : 'Camera list'}</h3><div className="toolbar"><div className="search"><input type="text" placeholder={lang ? 'بحث…' : 'Search…'} value={search} onChange={(event) => setSearch(event.target.value)} /></div><select value={zoneFilter} onChange={(event) => setZoneFilter(Number(event.target.value))}><option value={-1}>All zones</option>{ZONES.map((zone, index) => <option value={index} key={zone[0]}>{zone[lang]}</option>)}</select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All</option><option value="online">Online</option><option value="offline">Offline</option></select></div>
-        {loading ? <div className="note"><LoaderCircle size={14} /> Loading cameras…</div> : <div style={{ maxHeight: 410, overflowY: 'auto' }}><table><thead><tr><th>Camera</th><th>Location</th><th>Status</th><th>Source</th><th /></tr></thead><tbody>{filtered.map((camera) => <tr key={camera.id}><td><b>{camera.displayName || camera.id}</b><div className="mono">{camera.id}</div></td><td>{zoneName(camera)}</td><td><span className={`tag ${camera.status}`}>{camera.status}</span>{camera.lastError && <div style={{ color: 'var(--red)', fontSize: 10, marginTop: 4 }}>{camera.lastError}</div>}</td><td><span className={`tag ${camera.rtspConfigured ? 'closed' : 'unknown'}`}>{camera.rtspConfigured ? `${camera.codec} · configured` : 'not configured'}</span></td><td>{canEdit('cameras') && <button className="btn ghost sm" onClick={() => openEdit(camera)} title="Configure"><Settings size={14} /></button>}</td></tr>)}</tbody></table>{!filtered.length && <div className="note">{lang ? 'لا توجد كاميرات مطابقة.' : 'No matching cameras.'}</div>}</div>}
+      <div className="panel glass-panel"><h3><List size={18} color="var(--green)" /> {lang ? 'قائمة الكاميرات' : 'Camera list'}</h3><div className="toolbar"><div className="search"><input type="text" placeholder={lang ? 'بحث…' : 'Search…'} value={search} onChange={(event) => setSearch(event.target.value)} /></div><select value={zoneFilter} onChange={(event) => setZoneFilter(Number(event.target.value))}><option value={-1}>All zones</option>{ZONES.map((zone, index) => <option value={index} key={zone[0]}>{zone[lang]}</option>)}</select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All</option><option value="online">Online</option><option value="offline">Offline</option><option value="unknown">Unchecked</option></select></div>
+        {loading ? <div className="note"><LoaderCircle size={14} /> Loading cameras…</div> : <div style={{ maxHeight: 410, overflowY: 'auto' }}><table><thead><tr><th>Camera</th><th>Location</th><th>Status</th><th>Source</th><th /></tr></thead><tbody>{filtered.map((camera) => <tr key={camera.id}><td><b>{camera.displayName || camera.id}</b><div className="mono">{camera.id}</div></td><td>{zoneName(camera)}</td><td><span className={`tag ${health(camera) === 'unknown' ? 'unknown' : health(camera)}`}>{health(camera)}</span>{camera.statusStale && camera.status === 'online' && <div className="sub" style={{ fontSize: 10, marginTop: 4 }}>{lang ? 'لم يتم التحقق مؤخرًا — اضغط اختبار' : 'not verified recently — run Test'}</div>}{camera.lastError && <div style={{ color: 'var(--red)', fontSize: 10, marginTop: 4 }}>{camera.lastError}</div>}</td><td><span className={`tag ${camera.rtspConfigured ? 'closed' : 'unknown'}`}>{camera.rtspConfigured ? `${camera.codec} · configured` : 'not configured'}</span></td><td>{canEdit('cameras') && <button className="btn ghost sm" onClick={() => openEdit(camera)} title="Configure"><Settings size={14} /></button>}</td></tr>)}</tbody></table>{!filtered.length && <div className="note">{lang ? 'لا توجد كاميرات مطابقة.' : 'No matching cameras.'}</div>}</div>}
       </div>
     </div>
     {editing && <div className="overlay camera-overlay" onClick={(event) => event.target === event.currentTarget && setEditing(null)}><form className="modal camera-modal" onSubmit={saveCamera}>
@@ -190,7 +198,10 @@ export default function CamerasPage() {
       <div className="mb camera-modal-body">
         <div className="camera-form-section"><div className="camera-section-title"><MapPinned size={15} /><span>{lang ? 'هوية وموقع الكاميرا' : 'Camera identity & location'}</span></div>
           <div className="frow"><div className="fg"><label><Hash size={13} /> {importingWholeDvr ? (lang ? 'بادئة المعرّف' : 'ID prefix') : 'Camera ID'}</label><input type="text" required disabled={editing !== 'new'} value={form.id} onChange={(event) => setForm({ ...form, id: event.target.value })} placeholder={importingWholeDvr ? 'LOBBY-DVR' : 'CAM-01'} />{importingWholeDvr && <small className="camera-import-hint">{lang ? `ستكون المعرّفات ${(form.id || 'LOBBY-DVR').toUpperCase()}-CH1 …` : `Cameras become ${(form.id || 'LOBBY-DVR').toUpperCase()}-CH1, -CH2, …`}</small>}</div><div className="fg"><label><Camera size={13} /> Display name</label><input type="text" required value={form.displayName} onChange={(event) => setForm({ ...form, displayName: event.target.value })} placeholder="Main gate" /></div></div>
-          <div className="frow"><div className="fg"><label><Building2 size={13} /> Building</label><input type="text" value={form.buildingCode} onChange={(event) => setForm({ ...form, buildingCode: event.target.value })} placeholder="WTR-B1" /></div><div className="fg"><label><MapPin size={13} /> Zone</label><select value={form.zone} onChange={(event) => setForm({ ...form, zone: event.target.value })}>{ZONES.map((zone, index) => <option value={index} key={zone[0]}>{zone[lang]}</option>)}</select></div></div>
+          {/* Project and building are where the Units module gets its
+              structure from, so they are asked for on every camera. */}
+          <div className="frow"><div className="fg"><label><Layers size={13} /> Project</label><input type="text" value={form.project} onChange={(event) => setForm({ ...form, project: event.target.value })} placeholder="West Town Residence" /></div><div className="fg"><label><Building2 size={13} /> Building</label><input type="text" value={form.buildingCode} onChange={(event) => setForm({ ...form, buildingCode: event.target.value })} placeholder="4.6-C" /></div></div>
+          <div className="frow"><div className="fg"><label><MapPin size={13} /> Zone</label><select value={form.zone} onChange={(event) => setForm({ ...form, zone: event.target.value })}>{ZONES.map((zone, index) => <option value={index} key={zone[0]}>{zone[lang]}</option>)}</select></div></div>
           <div className="fg camera-last-field"><label><MapPinned size={13} /> Exact location</label><input type="text" value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="Lobby north entrance" /></div>
         </div>
         <div className="camera-form-section"><div className="camera-section-title"><Video size={15} /><span>{lang ? 'إعدادات البث' : 'Stream configuration'}</span></div>

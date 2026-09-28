@@ -9,7 +9,6 @@
     "dashboard": "لوحة القيادة",
     "livewall": "الحائط المباشر",
     "cameras": "الكاميرات",
-    "buildings": "المباني",
     "enrollments": "التسجيلات",
     "alerts": "التنبيهات",
     "track": "التتبّع",
@@ -18,7 +17,8 @@
     "reports": "التقارير",
     "admin": "الإدارة",
     "facetest": "اختبار الوجه",
-    "settings": "الإعدادات"
+    "settings": "الإعدادات",
+    "units": "الوحدات"
   },
   "common": {
     "online": "متصل",
@@ -73,11 +73,27 @@
     "enrolled_matches": "مطابقات مسجّلة",
     "unenrolled_faces": "وجوه غير مسجّلة"
   },
-  "buildings": {
-    "subtitle": "مشروع WTR · تحكم بالوصول وكشف الغرباء لكل مبنى",
+  "units": {
+    "subtitle": "STMC · المشاريع والمباني والوحدات، محسوبة من الكاميرات والتسجيلات",
     "units": "الوحدات",
-    "enrolled": "ملاك مسجّلون",
-    "strangers_today": "غرباء اليوم"
+    "enrolled": "الأشخاص المسجّلون",
+    "strangers_today": "غرباء اليوم",
+    "projects": "المشاريع",
+    "buildings": "المباني",
+    "occupied": "وحدات مأهولة",
+    "coverage": "التغطية",
+    "cameras": "الكاميرات",
+    "search": "ابحث عن مشروع أو مبنى أو وحدة…",
+    "no_results": "لا توجد نتائج مطابقة.",
+    "set_total": "تحديد عدد الوحدات",
+    "unknown_total": "عدد الوحدات غير محدد",
+    "scope_all": "الكل",
+    "match": "نتيجة",
+    "matches": "نتائج",
+    "clear": "مسح البحث",
+    "search_hint": "جرّب اسم مشروع أو كود مبنى أو رقم وحدة.",
+    "no_projects": "لا توجد مشاريع بعد.",
+    "no_projects_hint": "أضف كاميرا وحدد المشروع والمبنى ليظهرا هنا."
   },
   "enroll": {
     "back": "رجوع",

@@ -124,11 +124,11 @@ export const USERS = [
 ];
 
 export const ROLES = {
-  Admin:        { view: ["dashboard","livewall","cameras","buildings","enrollments","alerts","track","facedb","reports","admin","settings","facetest"], edit: ["dashboard","livewall","cameras","buildings","enrollments","alerts","track","facedb","reports","admin","settings","facetest"] },
-  Supervisor:   { view: ["dashboard","livewall","cameras","buildings","enrollments","alerts","track","facedb","reports","settings"], edit: ["alerts","facedb","enrollments"] },
-  Operator:     { view: ["dashboard","livewall","cameras","buildings","enrollments","alerts","track","facedb"], edit: ["alerts"] },
-  Investigator: { view: ["dashboard","buildings","track","facedb","reports"], edit: ["facedb"] },
-  Viewer:       { view: ["dashboard","livewall","cameras","buildings","reports"], edit: [] },
+  Admin:        { view: ["dashboard","livewall","cameras","units","enrollments","alerts","track","facedb","reports","admin","settings","facetest"], edit: ["dashboard","livewall","cameras","units","enrollments","alerts","track","facedb","reports","admin","settings","facetest"] },
+  Supervisor:   { view: ["dashboard","livewall","cameras","units","enrollments","alerts","track","facedb","reports","settings"], edit: ["alerts","facedb","enrollments"] },
+  Operator:     { view: ["dashboard","livewall","cameras","units","enrollments","alerts","track","facedb"], edit: ["alerts"] },
+  Investigator: { view: ["dashboard","units","track","facedb","reports"], edit: ["facedb"] },
+  Viewer:       { view: ["dashboard","livewall","cameras","units","reports"], edit: [] },
 };
 
 export const LIVE_CAM_BOXES = {

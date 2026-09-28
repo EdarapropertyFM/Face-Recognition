@@ -9,7 +9,6 @@
     "dashboard": "Dashboard",
     "livewall": "Live Wall",
     "cameras": "Cameras",
-    "buildings": "Buildings",
     "enrollments": "Enrollments",
     "alerts": "Alerts",
     "track": "Track & Trace",
@@ -18,7 +17,8 @@
     "reports": "Reports",
     "admin": "Admin",
     "facetest": "Face Test",
-    "settings": "Settings"
+    "settings": "Settings",
+    "units": "Units"
   },
   "common": {
     "online": "online",
@@ -73,11 +73,27 @@
     "enrolled_matches": "enrolled matches",
     "unenrolled_faces": "unenrolled faces"
   },
-  "buildings": {
-    "subtitle": "STMC · access and unregistered-face detection per building",
+  "units": {
+    "subtitle": "STMC · projects, buildings and units, counted from live cameras and enrolments",
     "units": "Units",
-    "enrolled": "Owners enrolled",
-    "strangers_today": "Strangers today"
+    "enrolled": "People enrolled",
+    "strangers_today": "Strangers today",
+    "projects": "Projects",
+    "buildings": "Buildings",
+    "occupied": "Units occupied",
+    "coverage": "Coverage",
+    "cameras": "Cameras",
+    "search": "Search project, building or unit…",
+    "no_results": "Nothing matches that search.",
+    "set_total": "Set unit count",
+    "unknown_total": "Unit count not set",
+    "scope_all": "All",
+    "match": "match",
+    "matches": "matches",
+    "clear": "Clear search",
+    "search_hint": "Try a project name, a building code, or a unit number.",
+    "no_projects": "No projects yet.",
+    "no_projects_hint": "Add a camera with a project and building, and they will appear here."
   },
   "enroll": {
     "back": "Back",

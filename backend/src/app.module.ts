@@ -9,7 +9,7 @@ import { ReportsModule } from './reports/reports.module';
 import { DetectionsModule } from './detections/detections.module';
 import { SettingsModule } from './settings/settings.module';
 import { CamerasModule } from './cameras/cameras.module';
-import { BuildingsModule } from './buildings/buildings.module';
+import { UnitsModule } from './units/units.module';
 import { EnrollmentsModule } from './enrollments/enrollments.module';
 import { IncidentsModule } from './incidents/incidents.module';
 import { AlertsModule } from './alerts/alerts.module';
@@ -41,7 +41,7 @@ import { RealtimeModule } from './realtime/realtime.module';
     AlertsModule,
     IncidentsModule,
     EnrollmentsModule,
-    BuildingsModule,
+    UnitsModule,
     CamerasModule,
     SettingsModule,
     DetectionsModule,

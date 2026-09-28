@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryColumn } from 'typeorm';
+import { Entity, Column, Index, PrimaryColumn } from 'typeorm';
 
 @Entity('faces')
 export class Face {
@@ -37,4 +37,14 @@ export class Face {
 
   @Column({ nullable: true })
   aiPersonId: string;
+
+  /**
+   * The enrolment this person registered through. The Face Database lists
+   * only people who came through the enrolment site, so a row without this
+   * is not shown: it was added straight to the AI gallery by a script or the
+   * webcam page and never went through registration or consent.
+   */
+  @Index()
+  @Column({ type: 'varchar', nullable: true })
+  enrollmentRef: string | null;
 }

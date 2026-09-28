@@ -11,11 +11,17 @@ export class Enrollment {
   @Column()
   status: string; // pending, approved, rejected
 
+  // The primary residence, kept as plain columns so existing reports and
+  // lookups keep working. A resident may hold several units across projects;
+  // the full list lives in `residences`, whose first entry is this one.
   @Column()
   building: string;
 
   @Column()
   unit: string;
+
+  @Column('jsonb', { default: [] })
+  residences: Array<{ project: string; building: string; unit: string }>;
 
   @Column()
   submittedAt: string;

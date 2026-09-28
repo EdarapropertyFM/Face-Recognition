@@ -13,6 +13,9 @@ export class CreateCameraDto {
   @IsInt() @Min(0)
   zone: number;
 
+  @IsOptional() @IsString() @MaxLength(120)
+  project?: string;
+
   @IsOptional() @IsString() @MaxLength(64)
   buildingCode?: string;
 

@@ -1,44 +1,97 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Download, UserPlus, Eye, Map, MapPin, Clock, Timer, Route, ShieldAlert, UserX, User } from 'lucide-react';
-import { FACES, DETECTIONS } from '../store';
-import { displayName, zoneLabel } from '../utils/display';
+import { useSearchParams } from 'react-router-dom';
+import { Download, Eye, Map, MapPin, Clock, Timer, Route, ShieldAlert, UserX, User, Building2, Cctv, CalendarDays } from 'lucide-react';
+import { apiFetch } from '../api';
+import { displayName } from '../utils/display';
+import { formatWhen } from './AlertsPage';
+import { DEMO, demoHistory, demoSubjects } from '../demo';
+import { snapshotUrl } from '../utils/snapshot';
 
-function analyze(fid, evs, lang) {
+const where = (d) => `${d.camera?.building || '—'} · ${d.camera?.name || d.cam}`;
+
+function countBy(list, key) {
+  const out = {};
+  list.forEach(item => { const k = key(item); out[k] = (out[k] || 0) + 1; });
+  return Object.entries(out).sort((a, b) => b[1] - a[1]);
+}
+
+function duration(ms) {
+  const min = Math.round(ms / 60000);
+  if (min < 60) return `${min} min`;
+  if (min < 1440) return `${Math.floor(min / 60)} h ${min % 60} min`;
+  return `${Math.floor(min / 1440)} d ${Math.floor((min % 1440) / 60)} h`;
+}
+
+function analyze(evs) {
   if (!evs.length) return null;
-  const zc = {};
-  evs.forEach(e => { zc[e.zone] = (zc[e.zone] || 0) + 1; });
-  const [busyZone, busyCount] = Object.entries(zc).sort((a,b) => b[1]-a[1])[0];
-  const hours = evs.map(e => +e.when.slice(11, 13));
-  const hc = {};
-  hours.forEach(h => { hc[h] = (hc[h] || 0) + 1; });
-  const [peak] = Object.entries(hc).sort((a,b) => b[1]-a[1])[0];
-  const ts = evs.map(e => e.ts);
-  const span = Math.round((Math.max(...ts) - Math.min(...ts)) / 60000);
+  const ts = evs.map(e => Date.parse(e.when)).filter(Number.isFinite);
+  const hours = countBy(evs, e => new Date(e.when).getHours());
+  const cams = countBy(evs, where);
   return {
     total: evs.length,
-    zones: Object.keys(zc).length,
-    busy: zoneLabel(busyZone, lang) + ' (' + busyCount + ')',
-    peak: peak + ':00',
-    span: span + ' min',
+    buildings: countBy(evs, e => e.camera?.building || '—'),
+    cameras: cams,
+    days: new Set(evs.map(e => formatWhen(e.when).slice(0, 10))).size,
+    busy: `${cams[0][0]} (${cams[0][1]})`,
+    peak: `${String(hours[0][0]).padStart(2, '0')}:00`,
+    span: ts.length ? duration(Math.max(...ts) - Math.min(...ts)) : '—',
     first: evs[evs.length - 1]?.when,
     last: evs[0]?.when,
   };
 }
 
+function exportCsv(subjectId, evs) {
+  const rows = [['when', 'building', 'camera', 'channel', 'conf', 'decision']]
+    .concat(evs.map(e => [formatWhen(e.when), e.camera?.building ?? '', e.camera?.name ?? e.cam, e.camera?.channel ?? '', e.conf, e.decision ?? '']));
+  const csv = rows.map(r => r.map(v => `"${String(v).replaceAll('"', '""')}"`).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = `track-${subjectId}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 export default function TrackPage() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language === 'ar' ? 1 : 0;
-  const [selectedFace, setSelectedFace] = useState('F-0087');
+  const [params, setParams] = useSearchParams();
+  const selected = params.get('face') || '';
+  const [subjects, setSubjects] = useState([]);
   const [faceSearch, setFaceSearch] = useState('');
+  const [history, setHistory] = useState(null);
+  const [error, setError] = useState('');
 
-  const f = FACES.find(x => x.id === selectedFace);
-  const evs = DETECTIONS.filter(d => d.face === selectedFace);
-  const stats = analyze(selectedFace, evs, lang);
+  useEffect(() => {
+    (DEMO ? Promise.resolve(demoSubjects()) : apiFetch('/detections/subjects')
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then(list => {
+        setSubjects(list);
+        // Nothing chosen yet: follow whoever was seen most recently.
+        if (!params.get('face') && list[0]) setParams({ face: list[0].id }, { replace: true });
+      })
+      .catch(err => setError(err.message));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const faceOptions = FACES.filter(x =>
-    (x.id + x.name[0] + x.name[1]).toLowerCase().includes(faceSearch.toLowerCase())
-  );
+  useEffect(() => {
+    if (!selected) return;
+    setHistory(null);
+    if (DEMO) { setHistory(demoHistory(selected)); return; }
+    apiFetch(`/detections/history/${encodeURIComponent(selected)}`)
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(res.status === 404 ? (lang ? 'لا يوجد سجل لهذا الشخص' : 'No record for this person') : `HTTP ${res.status}`)))
+      .then(data => { setHistory(data); setError(''); })
+      .catch(err => setError(err.message));
+  }, [selected, lang]);
+
+  const evs = useMemo(() => history?.detections ?? [], [history]);
+  const stats = useMemo(() => analyze(evs), [evs]);
+  const f = history?.subject;
+  const tier = f?.known ? f.type : 'unknown';
+  const name = (s) => s?.known ? displayName(s, lang, s.id) : `${lang ? 'غريب' : 'Stranger'} · ${s?.id}`;
+
+  const faceOptions = subjects.filter(x =>
+    (x.id + ' ' + (x.name ?? []).join(' ')).toLowerCase().includes(faceSearch.toLowerCase()));
+  if (selected && !faceOptions.some(x => x.id === selected) && f) faceOptions.unshift({ ...f, count: history.total });
 
   return (
     <>
@@ -58,81 +111,111 @@ export default function TrackPage() {
           onChange={e => setFaceSearch(e.target.value)}
           style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--bg2)', color: 'var(--fg)', width: 180 }}
         />
-        <select value={selectedFace} onChange={e => setSelectedFace(e.target.value)}>
+        <select value={selected} onChange={e => setParams({ face: e.target.value })}>
+          {!selected && <option value="">{lang ? 'اختر شخصاً' : 'Choose a person'}</option>}
           {faceOptions.map(x => (
-            <option key={x.id} value={x.id}>{x.id} · {displayName(x, lang, x.id)}</option>
+            <option key={x.id} value={x.id}>{name(x)} · {x.count ?? 0} {lang ? 'اكتشاف' : 'sightings'}</option>
           ))}
         </select>
         <div className="grow" />
-        <button className="btn ghost sm"><Download size={14} /> Export CSV</button>
-        {f?.type === 'unknown' && <button className="btn sm"><UserPlus size={14} /> {lang ? 'تعريف/تسجيل' : 'Identify/Enroll'}</button>}
+        <button className="btn ghost sm" disabled={!evs.length} onClick={() => exportCsv(selected, evs)}><Download size={14} /> Export CSV</button>
       </div>
 
-      {/* Stats cards */}
+      {error && <div className="panel glass-panel" style={{ padding: 16, marginBottom: 16, color: 'var(--red)' }}>{error}</div>}
+      {!selected && !error && <div className="sub" style={{ padding: 20 }}>{lang ? 'لم تكتشف الكاميرات أي شخص بعد.' : 'No one has been detected yet.'}</div>}
+
       {stats && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 20 }}>
           {[
-            [lang ? 'الاكتشافات' : 'Detections', stats.total, Eye, 'blue'],
-            [lang ? 'مواقع مزارة' : 'Locations visited', stats.zones, Map, 'green'],
-            [lang ? 'المنطقة الأكثر نشاطاً' : 'Busiest zone', stats.busy, MapPin, 'amber'],
+            [lang ? 'مرات الاكتشاف' : 'Times detected', stats.total, Eye, 'blue'],
+            [lang ? 'المباني' : 'Buildings', stats.buildings.length, Building2, 'green'],
+            [lang ? 'الكاميرات' : 'Cameras', stats.cameras.length, Map, 'green'],
+            [lang ? 'أيام الظهور' : 'Days seen', stats.days, CalendarDays, 'blue'],
+            [lang ? 'الموقع الأكثر ظهوراً' : 'Most seen at', stats.busy, MapPin, 'amber'],
             [lang ? 'ذروة النشاط' : 'Peak hour', stats.peak, Clock, 'red'],
-            [lang ? 'الوقت في الموقع' : 'Time on site', stats.span, Timer, 'blue'],
+            [lang ? 'من أول لآخر ظهور' : 'First → last seen', stats.span, Timer, 'blue'],
           ].map(([label, value, Icon, colorClass]) => (
             <div key={label} className="kpi-card glass-panel" style={{ padding: '16px' }}>
               <div className="kpi-header" style={{ marginBottom: 12 }}>
-                <span className={`kpi-icon ${colorClass}`}>
-                  <Icon size={18} />
-                </span>
+                <span className={`kpi-icon ${colorClass}`}><Icon size={18} /></span>
                 <div className="lab">{label}</div>
               </div>
               <div className="kpi-body">
-                <div className="val a" style={{ fontSize: value?.length > 8 ? 20 : 28 }}>{value}</div>
+                <div className="val a" style={{ fontSize: String(value).length > 8 ? 16 : 28 }}>{value}</div>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      <div className="two">
-        {/* Face profile */}
-        <div className="panel glass-panel">
-          <h3>
-            <span className="face-th" style={{ width: 44, height: 44, borderRadius: 8, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle', marginInlineEnd: 12 }}>
-              {f?.type === 'watch' ? <ShieldAlert size={20} color="var(--red)" /> : 
-               f?.type === 'unknown' ? <UserX size={20} color="var(--amber)" /> : 
-               <User size={20} color="var(--green)" />}
-            </span>
-            {displayName(f, lang)} <span className={`tag ${f?.type}`} style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>{t(`face.${f?.type}`)}</span>
-          </h3>
-          <table>
-            <tbody>
-              <tr><td className="mono">Face ID</td><td>{f?.id}</td></tr>
-              <tr><td className="mono">ID / Card</td><td>{f?.idno} {f?.issuer !== '—' ? '· ' + f?.issuer : ''}</td></tr>
-              <tr><td className="mono">Status</td><td>{f?.role[lang]}</td></tr>
-              <tr><td className="mono">Enrolled</td><td>{f?.enroll}</td></tr>
-              <tr><td className="mono">Total on record</td><td>{DETECTIONS.filter(d => d.face === f?.id).length}</td></tr>
-            </tbody>
-          </table>
-          {f?.type === 'unknown' && (
-            <div className="note" style={{ marginTop: 12 }}>
-              {lang ? 'غريب — معرّف مجهول، لا هوية بعد.' : 'Stranger — anonymous ID, no identity yet. Identify/Enroll to capture biometric.'}
-            </div>
-          )}
-        </div>
+      {f && (
+        <div className="two">
+          <div className="panel glass-panel">
+            <h3>
+              <span className="face-th" style={{ width: 44, height: 44, borderRadius: 8, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle', marginInlineEnd: 12 }}>
+                {tier === 'watch' ? <ShieldAlert size={20} color="var(--red)" /> :
+                 tier === 'unknown' ? <UserX size={20} color="var(--amber)" /> :
+                 <User size={20} color="var(--green)" />}
+              </span>
+              {f.known ? displayName(f, lang) : (lang ? 'غريب' : 'Stranger')} <span className={`tag ${tier}`} style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>{t(`face.${tier}`)}</span>
+            </h3>
+            <table>
+              <tbody>
+                <tr><td className="mono">Face ID</td><td className="mono">{f.id}</td></tr>
+                {f.known && <>
+                  <tr><td className="mono">{lang ? 'الصفة' : 'Role'}</td><td>{displayName({ name: f.role }, lang, '—')}</td></tr>
+                  <tr><td className="mono">{lang ? 'المبنى / الوحدة' : 'Home'}</td><td>{f.bldg ? `${f.bldg} · ${f.unit || '—'}` : '—'}</td></tr>
+                  <tr><td className="mono">ID / Card</td><td className="mono">{f.idno || '—'}</td></tr>
+                  <tr><td className="mono">{lang ? 'تاريخ التسجيل' : 'Enrolled'}</td><td>{f.enroll || '—'}</td></tr>
+                </>}
+                <tr><td className="mono">{lang ? 'إجمالي الاكتشافات' : 'Total detections'}</td><td>{history.total}</td></tr>
+                {stats && <>
+                  <tr><td className="mono">{lang ? 'أول ظهور' : 'First seen'}</td><td className="mono">{formatWhen(stats.first)}</td></tr>
+                  <tr><td className="mono">{lang ? 'آخر ظهور' : 'Last seen'}</td><td className="mono">{formatWhen(stats.last)}</td></tr>
+                </>}
+              </tbody>
+            </table>
 
-        {/* Timeline */}
-        <div className="panel glass-panel">
-          <h3><Route size={18} color="var(--accent)" /> {lang ? 'خط زمني للتحركات' : 'Movement timeline'}</h3>
-          <div className="tl">
-            {evs.length ? evs.map((e, i) => (
-              <div key={i} className={`ev ${e.type}`}>
-                <b>{zoneLabel(e.zone, lang)}</b> · {e.cam}
-                <div>{e.when} · conf {e.conf}%</div>
+            {stats && (
+              <>
+                <h3 style={{ marginTop: 20 }}><Building2 size={16} color="var(--accent)" /> {lang ? 'الاكتشافات حسب الموقع' : 'Detections by location'}</h3>
+                <table>
+                  <tbody>
+                    {stats.cameras.map(([loc, n]) => (
+                      <tr key={loc}><td>{loc}</td><td style={{ textAlign: 'end' }}><b>{n}</b></td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </>
+            )}
+            {!f.known && (
+              <div className="note" style={{ marginTop: 12 }}>
+                {lang ? 'غريب: غير مسجل في قاعدة البيانات. يُجمع سجله لكل زيارة أمام كاميرا واحدة.' : 'Stranger: not in the database. Sightings are grouped per visit in front of one camera.'}
               </div>
-            )) : <div className="sub">No detections in range</div>}
+            )}
+          </div>
+
+          <div className="panel glass-panel">
+            <h3><Route size={18} color="var(--accent)" /> {lang ? 'السجل الكامل للتحركات' : 'Full movement history'} ({evs.length})</h3>
+            <div className="tl" style={{ maxHeight: 560, overflowY: 'auto' }}>
+              {evs.length ? evs.map(e => (
+                <div key={e.id} className={`ev ${e.type}`}>
+                  {/* The face this sighting was recognised from. A row saying
+                      somebody was seen is of little use without it. */}
+                  {e.snapshot && e.snapshotToken ? (
+                    <a className="ev-shot" href={snapshotUrl(e.snapshot, e.snapshotToken)} target="_blank" rel="noreferrer"
+                      title={lang ? 'فتح الصورة' : 'Open full image'}>
+                      <img src={snapshotUrl(e.snapshot, e.snapshotToken)} alt={lang ? 'لقطة الوجه' : 'Captured face'} loading="lazy" />
+                    </a>
+                  ) : null}
+                  <b><Building2 size={12} style={{ verticalAlign: -1 }} /> {e.camera?.building || '—'}</b> · <Cctv size={12} style={{ verticalAlign: -1 }} /> {e.camera?.name || e.cam}{e.camera?.channel ? ` · CH${e.camera.channel}` : ''}
+                  <div className="mono">{formatWhen(e.when)} · conf {e.conf}%</div>
+                </div>
+              )) : <div className="sub">{lang ? 'لم يُكتشف بعد' : 'Not seen by any camera yet'}</div>}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </>
   );
 }

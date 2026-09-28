@@ -1,20 +1,22 @@
-import { ArrowRight, Building2, CheckCircle2, CalendarDays, CreditCard, Mail, Phone, Upload, User } from 'lucide-react';
+import {
+  ArrowRight, Building2, CheckCircle2, CalendarDays, CreditCard, Layers, Mail, Phone, Plus,
+  Trash2, Upload, User,
+} from 'lucide-react';
 import EnrollmentProgress from './EnrollmentProgress';
 import FormField from './FormField';
 import { requiresNationalId } from '../../utils/household';
 import SelectField from './SelectField';
-import { getUnitsForBuilding } from '../../utils/enrollment';
+import { buildingsInProject, draftResidences, unitsInBuilding } from '../../utils/enrollment';
 
 export default function ResidenceIdentityStep({
-  draft, errors, buildings, buildingsLoading, buildingsError, onRetryBuildings,
-  onChange, onBuildingChange, onDocumentChange, onContinue,
+  draft, errors, projects, projectsLoading, projectsError, onRetryProjects,
+  onChange, onResidenceChange, onAddResidence, onRemoveResidence, onDocumentChange, onContinue,
 }) {
   const showNationalId = requiresNationalId(draft.age);
-  const buildingOptions = buildings.map((building) => ({
-    value: building.code,
-    label: `${building.name?.[0] || building.code} · ${building.code}`,
-  }));
-  const unitOptions = getUnitsForBuilding(draft.building, buildings);
+  const residences = draftResidences(draft);
+  const residenceErrors = errors.residences ?? {};
+  const projectOptions = projects.map((project) => ({ value: project.project, label: project.project }));
+
   return (
     <section className="enrollment-card" aria-labelledby="residence-title">
       <EnrollmentProgress currentStep={1} totalSteps={5} />
@@ -23,20 +25,74 @@ export default function ResidenceIdentityStep({
       <p className="enrollment-subtitle">Your entered details are saved automatically on this device.</p>
       <form onSubmit={(event) => { event.preventDefault(); onContinue(); }} noValidate>
         <h2 className="enrollment-section-title"><Building2 size={18} aria-hidden="true" /> Residence</h2>
-        <div className="enrollment-grid">
-          <SelectField id="building" label="Building" icon={Building2} value={draft.building}
-            error={errors.building} options={buildingOptions}
-            placeholder={buildingsLoading ? 'Loading buildings…' : 'Select building'} required disabled={buildingsLoading || Boolean(buildingsError)}
-            onChange={(event) => onBuildingChange(event.target.value)} />
-          <SelectField id="unit" label="Unit" icon={Building2} value={draft.unit}
-            error={errors.unit} options={unitOptions} placeholder="Select unit" required
-            disabled={!draft.building || buildingsLoading} onChange={(event) => onChange('unit', event.target.value)} />
-        </div>
-        {buildingsError ? (
+
+        {/* A resident may own units in several buildings, or in more than one
+            project, so the residence block repeats rather than being a single
+            building/unit pair. */}
+        {residences.map((residence, index) => {
+          const buildingOptions = buildingsInProject(residence.project, projects)
+            .map((building) => ({
+              value: building.code,
+              label: building.name?.[0] && building.name[0] !== building.code
+                ? `${building.name[0]} · ${building.code}` : building.code,
+            }));
+          const unitOptions = unitsInBuilding(residence.project, residence.building, projects)
+            .map((unit) => ({ value: unit, label: unit }));
+          return (
+            <fieldset className="enrollment-residence" key={residence.id}>
+              <legend>
+                {index === 0 ? 'Primary unit' : `Additional unit ${index}`}
+                {residences.length > 1 ? (
+                  <button type="button" className="enrollment-residence-remove"
+                    onClick={() => onRemoveResidence(residence.id)}
+                    aria-label={`Remove unit ${index + 1}`}>
+                    <Trash2 size={14} aria-hidden="true" /> Remove
+                  </button>
+                ) : null}
+              </legend>
+              <div className="enrollment-grid">
+                <SelectField id={`project-${residence.id}`} label="Project" icon={Layers}
+                  value={residence.project} options={projectOptions}
+                  placeholder={projectsLoading ? 'Loading projects…' : 'Select project'} required
+                  disabled={projectsLoading || Boolean(projectsError)}
+                  onChange={(event) => onResidenceChange(residence.id, { project: event.target.value })} />
+                <SelectField id={`building-${residence.id}`} label="Building" icon={Building2}
+                  value={residence.building} options={buildingOptions} placeholder="Select building" required
+                  disabled={!residence.project || projectsLoading}
+                  onChange={(event) => onResidenceChange(residence.id, { building: event.target.value })} />
+              </div>
+              <SelectField id={`unit-${residence.id}`} label="Unit" icon={Building2}
+                value={residence.unit} options={unitOptions} placeholder="Select unit" required
+                disabled={!residence.building || projectsLoading}
+                error={residenceErrors[index]}
+                onChange={(event) => onResidenceChange(residence.id, { unit: event.target.value })} />
+            </fieldset>
+          );
+        })}
+
+        <button type="button" className="enrollment-add-residence" onClick={onAddResidence}
+          disabled={projectsLoading || Boolean(projectsError)}>
+          <Plus size={16} aria-hidden="true" /> Add another unit
+        </button>
+
+        {/* No projects means no building has had its unit list entered yet.
+            Say so plainly rather than showing a form that cannot be filled. */}
+        {!projectsLoading && !projectsError && !projects.length ? (
           <div className="enrollment-options-error" role="alert">
-            <span>{buildingsError}</span><button type="button" onClick={onRetryBuildings}>Try again</button>
+            <span>
+              Registration is not open yet: the list of units has not been set up for any
+              building. Please contact the community office.
+            </span>
+            <button type="button" onClick={onRetryProjects}>Try again</button>
           </div>
         ) : null}
+
+        {projectsError ? (
+          <div className="enrollment-options-error" role="alert">
+            <span>{projectsError}</span><button type="button" onClick={onRetryProjects}>Try again</button>
+          </div>
+        ) : null}
+
         <h2 className="enrollment-section-title"><User size={18} aria-hidden="true" /> Personal details</h2>
         <FormField id="name" label="Full name" icon={User} value={draft.name} error={errors.name}
           autoComplete="name" required onChange={(event) => onChange('name', event.target.value)} />
@@ -68,7 +124,8 @@ export default function ResidenceIdentityStep({
           </label>
           {errors.idDoc ? <p className="enrollment-field-error">{errors.idDoc}</p> : null}
         </div>}
-        <button className="enrollment-button" type="submit" disabled={buildingsLoading || Boolean(buildingsError) || !buildings.length}>
+        <button className="enrollment-button" type="submit"
+          disabled={projectsLoading || Boolean(projectsError) || !projects.length}>
           Continue to face capture <ArrowRight size={18} aria-hidden="true" />
         </button>
       </form>

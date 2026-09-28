@@ -12,19 +12,20 @@ const ENCRYPTION_HEADER = Buffer.from('STMCENC1');
 export class SecureStorageService {
   private readonly root = path.resolve(process.env.BIOMETRIC_STORAGE_DIR || path.join(process.cwd(), 'storage'));
 
-  async storeEnrollmentOwner(ref: string, owner: Record<string, unknown>) {
+  /** `prefix` keeps a household member's files apart from the owner's in the same folder. */
+  async storeEnrollmentOwner(ref: string, owner: Record<string, unknown>, prefix = '') {
     const stored = structuredClone(owner);
     const faces = { ...((stored.faces as Record<string, unknown> | undefined) ?? {}) };
 
     for (const [key, value] of Object.entries(faces)) {
       if (typeof value === 'string' && value.startsWith('data:image/')) {
-        faces[key] = await this.writeImage(ref, `face-${this.safeSegment(key)}`, value);
+        faces[key] = await this.writeImage(ref, `${prefix}face-${this.safeSegment(key)}`, value);
       }
     }
     stored.faces = faces;
 
     if (typeof stored.nationalIdCard === 'string' && stored.nationalIdCard.startsWith('data:image/')) {
-      stored.nationalIdCard = await this.writeImage(ref, 'national-id', stored.nationalIdCard);
+      stored.nationalIdCard = await this.writeImage(ref, `${prefix}national-id`, stored.nationalIdCard);
     }
     return stored;
   }

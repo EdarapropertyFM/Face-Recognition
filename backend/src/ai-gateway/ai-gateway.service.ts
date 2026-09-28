@@ -28,6 +28,27 @@ export class AiGatewayService {
     });
   }
 
+  // ---- Unattended recognition -----------------------------------------
+
+  /** Cameras the AI is watching right now. */
+  async listMonitors() {
+    const body = await this.request('/monitor') as {
+      monitors?: Array<{ camera_id: string; running: boolean; reported: number; error?: string | null }>;
+    };
+    return body.monitors ?? [];
+  }
+
+  startMonitor(cameraId: string, source: string, zone: number) {
+    return this.request('/monitor', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ camera_id: cameraId, source, zone }),
+    }, 20000);
+  }
+
+  stopMonitor(cameraId: string) {
+    return this.request(`/monitor/${encodeURIComponent(cameraId)}`, { method: 'DELETE' });
+  }
+
   probeCamera(source: string) {
     return this.request('/camera/probe', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source }),
@@ -114,6 +135,27 @@ export class AiGatewayService {
       persons?: Array<{ person_id: string; name: string; role: string; created_at: string; template_count: number }>;
     };
     return body.persons ?? [];
+  }
+
+  /**
+   * Enrolment photos the AI service kept for a person, as data URLs. Best
+   * effort: an unreachable service or a missing folder yields no photos.
+   */
+  async personPhotos(personId: string, limit = 10): Promise<Array<[string, string]>> {
+    try {
+      const { images = [] } = await this.request(`/persons/${encodeURIComponent(personId)}/images`, undefined, 4000) as { images?: string[] };
+      const photos: Array<[string, string]> = [];
+      for (const name of images.slice(0, limit)) {
+        const res = await fetch(`${this.baseUrl}/persons/${encodeURIComponent(personId)}/images/${encodeURIComponent(name)}`,
+          { signal: AbortSignal.timeout(4000) });
+        if (!res.ok) continue;
+        const type = res.headers.get('content-type') || 'image/jpeg';
+        photos.push([name.replace(/\.[^.]+$/, ''), `data:${type};base64,${Buffer.from(await res.arrayBuffer()).toString('base64')}`]);
+      }
+      return photos;
+    } catch {
+      return [];
+    }
   }
 
   async deletePerson(personId: string) {

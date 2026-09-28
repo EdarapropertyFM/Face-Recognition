@@ -127,11 +127,12 @@ export default function DashboardPage() {
 
       {/* Buildings mini overview */}
       <div className="panel glass-panel" style={{ marginTop: 22 }}>
-        <h3><Building2 size={18} color="var(--green)" /> {t('nav.buildings')} — WTR overview</h3>
+        <h3><Building2 size={18} color="var(--green)" /> {t('nav.units')}</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
           {liveBuildings.map(b => (
-            <div key={b.code} className="statcard" style={{ cursor: 'pointer' }} onClick={() => navigate('/buildings')}>
+            <div key={`${b.project}-${b.code}`} className="statcard" style={{ cursor: 'pointer' }} onClick={() => navigate('/units')}>
               <div className="l">{displayName(b, lang, b.code)}</div>
+              <div className="sub" style={{ fontSize: 11 }}>{b.project}</div>
               <div className="v" style={{ fontSize: 20 }}>{b.enrolled}<span style={{ fontSize: 12, color: 'var(--muted)' }}>/{b.units}</span></div>
               {b.strangersToday > 0 && <div style={{ color: 'var(--red)', fontSize: 11 }}>⚠ {b.strangersToday} strangers</div>}
             </div>

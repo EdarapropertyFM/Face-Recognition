@@ -51,15 +51,28 @@ export class CamerasController {
     // group, reloading — aborts this request. That is ordinary, so it must
     // not surface as a logged ERROR with a stack trace; only genuine
     // upstream failures should.
-    let upstream: Awaited<ReturnType<CamerasService['openStream']>>;
+    let opened: Awaited<ReturnType<CamerasService['openStream']>>;
     try {
-      upstream = await this.camerasService.openStream(playbackId, token || '', abort.signal);
+      opened = await this.camerasService.openStream(playbackId, token || '', abort.signal);
     } catch (error) {
       if (isAbort(error) || response.closed) return;
       throw error;
     }
 
+    const { upstream, cameraId } = opened;
     if (!upstream.ok || !upstream.body) throw new BadGatewayException(`AI stream unavailable (${upstream.status})`);
+
+    // Whatever ends this stream -- the viewer closing a tile, the AI
+    // dropping it, an error -- the camera stops counting as watched exactly
+    // once, so the health prober knows when to resume checking it.
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      this.camerasService.viewerLeft(cameraId);
+    };
+    response.on('close', release);
+    response.on('finish', release);
     response.status(200);
     response.setHeader('Content-Type', upstream.headers.get('content-type') || 'multipart/x-mixed-replace; boundary=frame');
     response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
@@ -69,6 +82,7 @@ export class CamerasController {
     // read would raise an unhandled 'error' on the readable.
     const body = Readable.fromWeb(upstream.body as never);
     body.on('error', (error) => {
+      release();
       if (!isAbort(error)) this.logger.warn(`camera stream ${playbackId} ended: ${error.message}`);
       // End rather than destroy: destroy() sends a TCP reset, which any proxy
       // in front of us reports as ECONNRESET even though this is an ordinary

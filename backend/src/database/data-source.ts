@@ -1,7 +1,8 @@
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
 import { Alert } from '../alerts/entities/alert.entity';
-import { Building } from '../buildings/entities/building.entity';
+import { BuildingSetting } from '../units/entities/building-setting.entity';
+import { Project } from '../units/entities/project.entity';
 import { Camera } from '../cameras/entities/camera.entity';
 import { Detection } from '../detections/entities/detection.entity';
 import { Enrollment } from '../enrollments/entities/enrollment.entity';
@@ -23,6 +24,6 @@ export default new DataSource({
   password: process.env.DB_PASSWORD || 'password',
   database: process.env.DB_NAME || 'stmc',
   synchronize: false,
-  entities: [User, Face, Alert, Incident, Enrollment, Building, Camera, Setting, Detection],
+  entities: [User, Face, Alert, Incident, Enrollment, BuildingSetting, Project, Camera, Setting, Detection],
   migrations: [InitialStmcSchema1727049600000, CameraStreamFoundation1727136000000, CameraPlaybackDefault1727136100000],
 });

@@ -3,8 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { Search, UserPlus, Shield, Users, Lock, Eye, Edit2, X, Info } from 'lucide-react';
 import { USERS, ROLES } from '../store';
 import { displayName } from '../utils/display';
+import ProjectsPanel from '../components/admin/ProjectsPanel';
 
-const MODULES = ['dashboard','livewall','cameras','buildings','enrollments','alerts','track','facedb','reports','admin','settings'];
+const MODULES = ['dashboard','livewall','cameras','units','enrollments','alerts','track','facedb','reports','admin','settings'];
 const ROLE_LIST = Object.keys(ROLES);
 
 export default function AdminPage() {
@@ -24,7 +25,7 @@ export default function AdminPage() {
       <div className="ph">
         <div>
           <h1><Shield size={24} style={{ verticalAlign: 'middle', color: 'var(--accent)', marginRight: 8, marginBottom: 4 }} />{t('nav.admin')}</h1>
-          <div className="sub">{lang ? 'المستخدمون · الأدوار · الصلاحيات' : 'users · roles · permissions'}</div>
+          <div className="sub">{lang ? 'المستخدمون · الأدوار · الصلاحيات · المشاريع' : 'users · roles · permissions · projects'}</div>
         </div>
       </div>
 
@@ -112,6 +113,9 @@ export default function AdminPage() {
           </div>
         </div>
       </div>
+
+      {/* Projects, buildings and unit counts: what the enrolment form offers. */}
+      <div style={{ marginTop: 22 }}><ProjectsPanel lang={lang} /></div>
     </>
   );
 }

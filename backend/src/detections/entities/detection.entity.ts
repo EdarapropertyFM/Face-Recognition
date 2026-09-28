@@ -31,4 +31,12 @@ export class Detection {
 
   @Column('jsonb', { nullable: true })
   quality: unknown;
+
+  /**
+   * The face image this sighting was recognised from, relative to the AI's
+   * snapshot directory. A row saying "a stranger was seen" is of little use
+   * to an operator who cannot see who it was.
+   */
+  @Column({ type: 'varchar', nullable: true })
+  snapshot: string | null;
 }

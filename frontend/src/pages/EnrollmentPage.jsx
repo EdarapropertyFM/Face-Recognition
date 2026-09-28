@@ -7,17 +7,21 @@ import ResidenceIdentityStep from '../components/enrollment/ResidenceIdentitySte
 import ReviewSubmitStep from '../components/enrollment/ReviewSubmitStep';
 import VehiclesStep from '../components/enrollment/VehiclesStep';
 import { useEnrollmentDraft } from '../hooks/useEnrollmentDraft';
-import { useBuildingOptions } from '../hooks/useBuildingOptions';
+import { useResidenceOptions } from '../hooks/useResidenceOptions';
 import { apiFetch } from '../api';
 import { compressImageFile } from '../utils/image';
 import { memberPayload } from '../utils/household';
+import { draftResidences } from '../utils/enrollment';
 import ErrorBoundary from '../components/ErrorBoundary';
 import './EnrollmentPage.css';
 
 export default function EnrollmentPage() {
-  const { buildings, loading: buildingsLoading, error: buildingsError, reload: reloadBuildings } = useBuildingOptions();
   const {
-    draft, errors, identityDocument, faceCaptures, aiPersonId, step, updateField, updateBuilding,
+    projects, loading: projectsLoading, error: projectsError, reload: reloadProjects,
+  } = useResidenceOptions();
+  const {
+    draft, errors, identityDocument, faceCaptures, aiPersonId, step, updateField,
+    updateResidence, addResidence, removeResidence,
     setIdentityDocument, updateFaceCaptures, setAiPersonId, setFamily, setCars, clearSavedDraft,
     goToStep, validateResidence, resumable, resumeStep,
   } = useEnrollmentDraft();
@@ -29,7 +33,7 @@ export default function EnrollmentPage() {
   const [submittedRef, setSubmittedRef] = useState('');
 
   const continueToFaceCapture = () => {
-    if (validateResidence(buildings)) {
+    if (validateResidence(projects)) {
       goToStep(2);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -53,6 +57,8 @@ export default function EnrollmentPage() {
         schema: 'stmc.enroll.v1',
         building: draft.building,
         unit: draft.unit,
+        // Every unit this resident holds; the first is the primary one above.
+        residences: draftResidences(draft).map(({ project, building, unit }) => ({ project, building, unit })),
         submittedAt: new Date().toISOString(),
         owner: {
           name: draft.name.trim(), age: Number(draft.age), nid: draft.nid || null, mobile: draft.mobile,
@@ -105,12 +111,14 @@ export default function EnrollmentPage() {
             <ResidenceIdentityStep
               draft={draft}
               errors={errors}
-              buildings={buildings}
-              buildingsLoading={buildingsLoading}
-              buildingsError={buildingsError}
-              onRetryBuildings={reloadBuildings}
+              projects={projects}
+              projectsLoading={projectsLoading}
+              projectsError={projectsError}
+              onRetryProjects={reloadProjects}
               onChange={updateField}
-              onBuildingChange={updateBuilding}
+              onResidenceChange={updateResidence}
+              onAddResidence={addResidence}
+              onRemoveResidence={removeResidence}
               onDocumentChange={setIdentityDocument}
               onContinue={continueToFaceCapture}
             />

@@ -6,7 +6,8 @@ import { Face } from '../faces/entities/face.entity';
 import { Alert } from '../alerts/entities/alert.entity';
 import { Incident } from '../incidents/entities/incident.entity';
 import { Enrollment } from '../enrollments/entities/enrollment.entity';
-import { Building } from '../buildings/entities/building.entity';
+import { BuildingSetting } from '../units/entities/building-setting.entity';
+import { Project } from '../units/entities/project.entity';
 import { Camera } from '../cameras/entities/camera.entity';
 import { Setting } from '../settings/entities/setting.entity';
 import { Detection } from '../detections/entities/detection.entity';
@@ -19,7 +20,8 @@ import { Detection } from '../detections/entities/detection.entity';
       Alert,
       Incident,
       Enrollment,
-      Building,
+      BuildingSetting,
+      Project,
       Camera,
       Setting,
       Detection,

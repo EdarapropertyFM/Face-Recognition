@@ -1,6 +1,7 @@
 import { ArrowLeft, Building2, Car, CheckCircle2, FileCheck2, LoaderCircle, Pencil, ShieldCheck, Users } from 'lucide-react';
 import { useState } from 'react';
 import EnrollmentProgress from './EnrollmentProgress';
+import { draftResidences } from '../../utils/enrollment';
 
 function ReviewSection({ icon: Icon, title, onEdit, children }) {
   return (
@@ -32,7 +33,12 @@ export default function ReviewSubmitStep({ draft, faceCaptures, members, vehicle
 
       <ReviewSection icon={Building2} title="Residence and identity" onEdit={() => onEdit(1)}>
         <dl className="review-grid">
-          <div><dt>Building / Unit</dt><dd>{draft.building} · {draft.unit}</dd></div>
+          {/* Every unit the resident holds, not just the primary one. */}
+          <div><dt>{draftResidences(draft).length > 1 ? 'Units' : 'Unit'}</dt><dd>
+            {draftResidences(draft).map((residence) => (
+              <div key={residence.id}>{residence.project} · {residence.building} · {residence.unit}</div>
+            ))}
+          </dd></div>
           <div><dt>Full name</dt><dd>{draft.name}</dd></div>
           <div><dt>National ID</dt><dd>{draft.nid}</dd></div>
           <div><dt>Mobile</dt><dd>{draft.mobile}</dd></div>

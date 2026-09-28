@@ -4,11 +4,49 @@ import { MAX_AGE, requiresNationalId } from './household';
 export const EMPTY_ENROLLMENT_DRAFT = Object.freeze({
   building: '', unit: '', name: '', age: '', nid: '', mobile: '', email: '', idDocName: '',
   // Compressed data URL of the ID card, so a resumed draft is still complete.
-  idDocImage: '', family: [], cars: [],
+  idDocImage: '', family: [], cars: [], residences: [],
 });
 
-export function getUnitsForBuilding(buildingCode, buildings) {
-  return buildings.find((building) => building.code === buildingCode)?.units ?? [];
+/** A resident may hold several units, in different buildings or projects. */
+export function newResidence() {
+  return { id: crypto.randomUUID(), project: '', building: '', unit: '' };
+}
+
+export function buildingsInProject(projectName, projects) {
+  return projects.find((project) => project.project === projectName)?.buildings ?? [];
+}
+
+export function unitsInBuilding(projectName, buildingCode, projects) {
+  return buildingsInProject(projectName, projects)
+    .find((building) => building.code === buildingCode)?.units ?? [];
+}
+
+/** The residences a draft holds, always at least one row for the form. */
+export function draftResidences(draft) {
+  return draft.residences?.length ? draft.residences : [newResidence()];
+}
+
+export function residenceProblems(residences, projects) {
+  const problems = {};
+  const seen = new Set();
+  residences.forEach((residence, index) => {
+    if (!projects.some((project) => project.project === residence.project)) {
+      problems[index] = 'Choose a valid project.';
+      return;
+    }
+    if (!buildingsInProject(residence.project, projects).some((b) => b.code === residence.building)) {
+      problems[index] = 'Choose a valid building.';
+      return;
+    }
+    if (!unitsInBuilding(residence.project, residence.building, projects).includes(residence.unit)) {
+      problems[index] = 'Choose a valid unit.';
+      return;
+    }
+    const key = `${residence.project}|${residence.building}|${residence.unit}`;
+    if (seen.has(key)) problems[index] = 'This unit is already listed.';
+    seen.add(key);
+  });
+  return problems;
 }
 
 export function sanitizeStoredDraft(value) {
@@ -19,15 +57,28 @@ export function sanitizeStoredDraft(value) {
         ? value[key].filter((entry) => entry && typeof entry === 'object').map((entry) => ({ ...entry, id: entry.id || crypto.randomUUID() }))
         : [];
     }
+    else if (key === 'residences') {
+      draft[key] = Array.isArray(value[key])
+        ? value[key]
+          .filter((entry) => entry && typeof entry === 'object')
+          .map((entry) => ({
+            id: entry.id || crypto.randomUUID(),
+            project: typeof entry.project === 'string' ? entry.project : '',
+            building: typeof entry.building === 'string' ? entry.building : '',
+            unit: typeof entry.unit === 'string' ? entry.unit : '',
+          }))
+        : [];
+    }
     else draft[key] = typeof value[key] === 'string' ? value[key] : '';
     return draft;
   }, {});
 }
 
-export function validateResidenceDraft(draft, identityDocument, buildings) {
+export function validateResidenceDraft(draft, identityDocument, projects) {
   const errors = {};
-  if (!buildings.some((building) => building.code === draft.building)) errors.building = 'Choose a valid building.';
-  if (!getUnitsForBuilding(draft.building, buildings).includes(draft.unit)) errors.unit = 'Choose a valid unit.';
+  const residences = draftResidences(draft);
+  const problems = residenceProblems(residences, projects);
+  if (Object.keys(problems).length) errors.residences = problems;
   if (draft.name.trim().length < 3) errors.name = 'Enter your full name.';
   const years = Number(draft.age);
   if (String(draft.age ?? '').trim() === '') errors.age = 'Enter your age.';

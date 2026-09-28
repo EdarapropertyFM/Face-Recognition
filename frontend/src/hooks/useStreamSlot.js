@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { STREAMS_ARE_SEPARATE } from '../api';
 
 /**
  * Rations the camera streams a page may hold open at once.
@@ -17,10 +18,15 @@ import { useEffect, useRef, useState } from 'react';
  * release it as soon as they scroll away or unmount.
  */
 
-// Three leaves room for the event stream plus ordinary API calls: a browser
-// allows about six per origin, and starving the rest of the app of
-// connections is what makes every other page look like it loaded nothing.
-export const MAX_CONCURRENT_STREAMS = 3;
+// A browser allows about six concurrent connections per origin, and an MJPEG
+// stream holds one open for as long as its tile is on screen.
+//
+// When streams have an origin of their own they only share it with the event
+// stream, so four still leaves a spare and the app's own origin keeps its
+// full budget. Sharing one origin (a LAN address or a tunnel) means the
+// document, every module, every API call and the event stream all compete
+// with them, so fewer are allowed.
+export const MAX_CONCURRENT_STREAMS = STREAMS_ARE_SEPARATE ? 4 : 2;
 
 let inUse = 0;
 const waiting = new Set();
@@ -92,4 +98,26 @@ export function useOnScreen(ref, rootMargin = '200px') {
   }, [ref, rootMargin]);
 
   return onScreen;
+}
+
+/**
+ * True while this browser tab is actually visible.
+ *
+ * Chrome heavily throttles background tabs, and an MJPEG connection left open
+ * in one can stall and never resume: the socket stays established, the tile
+ * shows "Connecting...", and nothing ever arrives. Dropping the stream when
+ * the tab is hidden and asking for a fresh one on return replaces that dead
+ * connection with a working one, and costs nothing while nobody is looking.
+ */
+export function usePageVisible() {
+  const [visible, setVisible] = useState(() =>
+    typeof document === 'undefined' || document.visibilityState !== 'hidden');
+
+  useEffect(() => {
+    const update = () => setVisible(document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', update);
+    return () => document.removeEventListener('visibilitychange', update);
+  }, []);
+
+  return visible;
 }

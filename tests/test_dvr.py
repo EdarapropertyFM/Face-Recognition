@@ -139,3 +139,20 @@ def test_open_source_uses_rtsp_timeouts(monkeypatch, tmp_path):
     cfg = Config(data_dir=tmp_path)
     assert isinstance(live.open_source("rtsp://u:p@h/x", cfg), FakeCapture)
     assert called["url"] == "rtsp://u:p@h/x"
+
+
+def test_rtsp_streams_survive_a_brief_gap_in_viewers():
+    """A network camera is kept open far longer than a local webcam.
+
+    Every tile on the wall loses its viewer constantly - scrolling off
+    screen, switching page, a slot rotating. With the old 5 second grace
+    each of those tore down the RTSP connection and paid a multi-second
+    reconnect, which is what made the wall look unstable. A local webcam
+    still releases promptly, because holding it blocks other applications.
+    """
+    from api.streams import IDLE_STOP_S, RTSP_IDLE_STOP_S, idle_grace
+
+    assert idle_grace("rtsp://admin:p@10.0.0.5:554/Streaming/Channels/102") == RTSP_IDLE_STOP_S
+    assert idle_grace(0) == IDLE_STOP_S          # laptop webcam
+    assert idle_grace("video.mp4") == IDLE_STOP_S
+    assert RTSP_IDLE_STOP_S > IDLE_STOP_S

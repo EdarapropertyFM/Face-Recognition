@@ -20,6 +20,11 @@ export class Camera {
   @Column({ default: '' })
   displayName: string;
 
+  // Project and building are the source of truth for the Units module: a
+  // project/building exists there because a camera was installed for it.
+  @Column({ type: 'varchar', nullable: true })
+  project: string | null;
+
   @Column({ type: 'varchar', nullable: true })
   buildingCode: string | null;
 

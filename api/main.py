@@ -22,6 +22,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
+# Must precede 'import cv2': OpenCV reads this when its FFmpeg plugin loads,
+# so setting it later (facerec.dvr also does) is too late and has no effect.
+# Without it the H.265 sub-streams flood the log with 'PPS id out of range'
+# and 'Could not find ref with POC', which is normal for joining a stream
+# mid-GOP and drowns out everything worth reading.
+os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "8")   # 8 = fatal only
+
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile, status
@@ -30,7 +37,9 @@ from fastapi.responses import HTMLResponse, Response, StreamingResponse
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from api.log_redaction import install as install_log_redaction  # noqa: E402
 from api.pages import DVR_HTML, ENROLL_HTML, GALLERY_HTML, LIVE_HTML  # noqa: E402
+from api.monitor import MonitorRegistry  # noqa: E402
 from api.streams import CameraHub, JpegWorker, mjpeg_chunk  # noqa: E402
 from facerec import DetectedFace, FaceEngine, load_config  # noqa: E402
 from facerec.config import Config  # noqa: E402
@@ -42,7 +51,7 @@ from facerec.gallery import Gallery  # noqa: E402
 from facerec.live import LiveRecognizer  # noqa: E402
 from facerec.matcher import decide  # noqa: E402
 from facerec.schemas import (  # noqa: E402
-    CameraProbeIn, CameraProbeOut, ChannelOut, DVRChannelsOut, DVRIn, DVROut, EnrollResponse, FaceOut, HealthResponse,
+    CameraProbeIn, CameraProbeOut, MonitorIn, ChannelOut, DVRChannelsOut, DVRIn, DVROut, EnrollResponse, FaceOut, HealthResponse,
     PairwiseSimilarity, PersonCreate, PersonCreateResponse, PersonListResponse, PersonOut, PersonUpdate,
     QualityOut, RecognizeBase64Request, RecognizeResponse, RejectedImage, WebcamEnrollStatus,
 )
@@ -115,6 +124,7 @@ class AppState:
         self.live_workers: dict[str, LiveWorker] = {}
         self.enroll_sessions: dict[str, EnrollSession] = {}
         self.workers_lock = threading.Lock()
+        self._monitors: MonitorRegistry | None = None
 
     @property
     def model_version(self) -> str:
@@ -130,6 +140,18 @@ class AppState:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
             h = self.hubs[key] = CameraHub(source, label)
         return h
+
+    @property
+    def monitors(self) -> MonitorRegistry:
+        # Created lazily so AppState stays cheap to build in tests.
+        if self._monitors is None:
+            self._monitors = MonitorRegistry(self)
+        return self._monitors
+
+    def new_recognizer(self, footer: str = "") -> LiveRecognizer:
+        """A recognizer sharing the loaded model and gallery. Each caller
+        gets its own tracker state, which is per-camera."""
+        return LiveRecognizer(self.engine, self.gallery, self.config, footer=footer)
 
     def live_for(self, source: str | int) -> LiveWorker:
         with self.workers_lock:
@@ -169,6 +191,15 @@ class AppState:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    # Installed before anything is served: the live view takes the camera as a
+    # ?source=rtsp://user:pass@host query parameter, so without this the DVR
+    # password is written to the access log on every request.
+    install_log_redaction()
+    # Say out loud how the AI will reach the backend. A token mismatch used
+    # to be invisible: recognition worked, detections were posted, and the
+    # backend threw every one away with a 401 nobody saw.
+    from api.backend_link import describe as _describe, resolve as _resolve
+    log.info("%s", _describe(*_resolve()))
     state = AppState(load_config())
     app.state.fr = state
     log.info("ready: model=%s gallery=%d person(s) / %d vectors",
@@ -465,6 +496,12 @@ def person_image(person_id: str, filename: str, request: Request):
 FIRST_FRAME_TIMEOUT_S = 12.0
 # A live stream that goes this long without a frame is finished, not slow.
 STALLED_STREAM_TIMEOUT_S = 15.0
+# ...unless the camera is being reconnected, which is an ordinary event on a
+# system that runs continuously: a DVR reboot, a dropped link, a recorder
+# closing an idle session. The grabber retries with a growing backoff, so the
+# viewer is held through it and sees a pause instead of a broken tile. Only
+# after this much unsuccessful reconnecting is the stream given up on.
+RECONNECTING_GRACE_S = 120.0
 
 
 async def mjpeg_response(request: Request, worker: JpegWorker) -> StreamingResponse:
@@ -493,7 +530,12 @@ async def mjpeg_response(request: Request, worker: JpegWorker) -> StreamingRespo
                 if frame is None:
                     # End a stalled stream rather than holding the connection
                     # open forever: the tile can then show an error and retry.
-                    if not worker.alive or time.monotonic() - last_frame_t > STALLED_STREAM_TIMEOUT_S:
+                    # A camera that is mid-reconnect gets much longer, because
+                    # it is expected to come back.
+                    hub = getattr(worker, "hub", None)
+                    reconnecting = hub is not None and not hub.connected and hub.alive
+                    limit = RECONNECTING_GRACE_S if reconnecting else STALLED_STREAM_TIMEOUT_S
+                    if not worker.alive or time.monotonic() - last_frame_t > limit:
                         break
                     continue
                 last_frame_t = time.monotonic()
@@ -640,6 +682,51 @@ def webcam_cancel(person_id: str, request: Request):
     if sess:
         sess.stop()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/snapshots/{rel:path}", summary="The face image saved with a detection")
+def snapshot_file(rel: str, request: Request):
+    """Serve one saved sighting.
+
+    `rel` arrives from a URL and is therefore untrusted; the resolver refuses
+    anything that escapes the snapshot directory.
+    """
+    from api import snapshots as _snapshots
+    path = _snapshots.resolve(fr(request).config.data_dir, rel)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such snapshot")
+    return Response(path.read_bytes(), media_type="image/jpeg",
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
+# --------------------------------------------------------------- monitors
+
+@app.post("/monitor", summary="Watch a camera continuously, with or without a viewer")
+def monitor_start(body: MonitorIn, request: Request):
+    """Start unattended recognition on a camera.
+
+    The monitor shares the capture with anyone watching the same camera, so
+    this costs no extra connection to the recorder and no second decode. It
+    is idempotent: asking twice returns the monitor already running.
+    """
+    s = fr(request)
+    s.monitors.prune()
+    return s.monitors.start(body.camera_id, body.source, body.zone)
+
+
+@app.get("/monitor", summary="What is being watched, and how it is doing")
+def monitor_list(request: Request):
+    s = fr(request)
+    s.monitors.prune()
+    return {"model_version": s.model_version, "monitors": s.monitors.status()}
+
+
+@app.delete("/monitor/{camera_id}", summary="Stop watching a camera")
+def monitor_stop(camera_id: str, request: Request):
+    s = fr(request)
+    if not s.monitors.stop(camera_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no monitor for that camera")
+    return {"camera_id": camera_id, "stopped": True}
 
 
 # ------------------------------------------------------------------- DVR

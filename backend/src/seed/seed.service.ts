@@ -6,11 +6,31 @@ import { Face } from '../faces/entities/face.entity';
 import { Alert } from '../alerts/entities/alert.entity';
 import { Incident } from '../incidents/entities/incident.entity';
 import { Enrollment } from '../enrollments/entities/enrollment.entity';
-import { Building } from '../buildings/entities/building.entity';
+import { BuildingSetting } from '../units/entities/building-setting.entity';
+import { Project } from '../units/entities/project.entity';
 import { Camera } from '../cameras/entities/camera.entity';
 import { Setting } from '../settings/entities/setting.entity';
 import { Detection } from '../detections/entities/detection.entity';
 import { randomBytes, scryptSync } from 'crypto';
+
+/**
+ * The buildings that actually exist, with their real unit codes. Add a project
+ * or building here only when it is real: everything else in the Units module
+ * is counted from live cameras and enrolments.
+ */
+const REAL_PROJECTS = [
+  { name: 'West Town Residence', label: ['West Town Residence', 'ويست تاون ريزيدنس'], active: true },
+];
+
+const REAL_BUILDINGS = [
+  {
+    project: 'West Town Residence',
+    code: '4.6-C',
+    name: ['4.6-C', '4.6-C'],
+    totalUnits: 0,
+    unitCodes: [] as string[],
+  },
+];
 
 @Injectable()
 export class SeedService implements OnModuleInit {
@@ -20,7 +40,8 @@ export class SeedService implements OnModuleInit {
     @InjectRepository(Alert) private alertRepo: Repository<Alert>,
     @InjectRepository(Incident) private incRepo: Repository<Incident>,
     @InjectRepository(Enrollment) private enrollRepo: Repository<Enrollment>,
-    @InjectRepository(Building) private bldgRepo: Repository<Building>,
+    @InjectRepository(BuildingSetting) private bldgRepo: Repository<BuildingSetting>,
+    @InjectRepository(Project) private projectRepo: Repository<Project>,
     @InjectRepository(Camera) private camRepo: Repository<Camera>,
     @InjectRepository(Setting) private settingRepo: Repository<Setting>,
     @InjectRepository(Detection) private detRepo: Repository<Detection>,
@@ -35,8 +56,8 @@ export class SeedService implements OnModuleInit {
     await this.seedSettings();
     await this.seedBuildings();
     await this.seedCameras();
-    await this.seedFaces();
-    await this.seedAlerts();
+    await this.removeDemoFaces();
+    await this.removeDemoAlerts();
     await this.seedIncidents();
     console.log('Seed completed.');
   }
@@ -80,25 +101,41 @@ export class SeedService implements OnModuleInit {
     });
   }
 
+  /**
+   * Real buildings only. The Units module discovers projects and buildings
+   * from the cameras that are installed; this table adds what a camera cannot
+   * report — the display name and the true unit count behind the coverage bar.
+   * Earlier builds seeded three invented buildings with invented occupancy;
+   * those are removed so nothing in the UI is made up.
+   */
   private async seedBuildings() {
-    const count = await this.bldgRepo.count();
-    if (count > 0) return;
+    // Projects are admin-owned records, so one must exist before its
+    // buildings can hang off it.
+    for (const project of REAL_PROJECTS) {
+      if (!await this.projectRepo.exists({ where: { name: project.name } })) {
+        await this.projectRepo.save(this.projectRepo.create(project));
+      }
+    }
 
-    await this.bldgRepo.save([
-      { code: "WTR-B1", name: ["Building 1", "مبنى ١"], units: 24, cams: 8, enrolled: 18, strangersToday: 1 },
-      { code: "WTR-B2", name: ["Building 2", "مبنى ٢"], units: 24, cams: 8, enrolled: 21, strangersToday: 0 },
-      { code: "WTR-B3", name: ["Building 3", "مبنى ٣"], units: 18, cams: 6, enrolled: 12, strangersToday: 0 },
-    ]);
+    await this.bldgRepo.createQueryBuilder().delete()
+      .where('code IN (:...codes)', { codes: ['WTR-B1', 'WTR-B2', 'WTR-B3'] }).execute();
+
+    for (const building of REAL_BUILDINGS) {
+      const exists = await this.bldgRepo.exists({
+        where: { project: building.project, code: building.code },
+      });
+      if (!exists) await this.bldgRepo.save(this.bldgRepo.create(building));
+    }
   }
 
-  private async seedFaces() {
-    const count = await this.faceRepo.count();
-    if (count > 0) return;
-
-    await this.faceRepo.save([
-      { id: "F-0001", name: ["Ahmed Kamal", "أحمد كمال"], type: "known", role: ["Owner WTR B1","مالك"], idno: "288", issuer: "Cairo", enroll: "2026-02-11", bldg: "WTR-B1", unit: "B1-0101" },
-      { id: "F-0044", name: ["Khaled Nabil", "خالد نبيل"], type: "watch", role: ["BANNED","محظور"], idno: "301", issuer: "Cairo", enroll: "2026-08-30", ban: "SEF-01-02", bldg: "WTR-B2", unit: "—" },
-    ]);
+  /**
+   * The Face Database shows only people enrolled through STMC. Earlier builds
+   * seeded two demo faces; remove them (never a real, AI-linked record).
+   */
+  private async removeDemoFaces() {
+    await this.faceRepo.createQueryBuilder().delete()
+      .where('id IN (:...ids) AND "aiPersonId" IS NULL', { ids: ['F-0001', 'F-0044'] })
+      .execute();
   }
 
   private async seedCameras() {
@@ -110,12 +147,9 @@ export class SeedService implements OnModuleInit {
     ]);
   }
 
-  private async seedAlerts() {
-    if (await this.alertRepo.count()) return;
-    await this.alertRepo.save([
-      { id: 'A1', face: 'F-0044', cam: 'CAM-Gate-03', zone: 3, when: '2026-09-16 09:41', conf: 96, status: 'new', log: [] },
-      { id: 'A2', face: 'F-0001', cam: 'CAM-Plaza-11', zone: 2, when: '2026-09-16 09:12', conf: 91, status: 'new', log: [] },
-    ]);
+  /** Alerts come only from real camera detections; drop the two demo rows earlier builds seeded. */
+  private async removeDemoAlerts() {
+    await this.alertRepo.delete(['A1', 'A2']);
   }
 
   private async seedIncidents() {

@@ -5,6 +5,7 @@ import { Camera } from './entities/camera.entity';
 import { CreateCameraDto } from './dto/create-camera.dto';
 import { ImportDvrDto } from './dto/import-dvr.dto';
 import { UpdateCameraDto } from './dto/update-camera.dto';
+import { healthOf, isStale } from './health';
 import { SecretCipherService } from '../security/secret-cipher.service';
 import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
 import { randomUUID } from 'crypto';
@@ -27,6 +28,7 @@ export class CamerasService {
     const source = this.resolveSource(dto);
     const camera = this.cameraRepo.create({
       id: dto.id.trim(), displayName: dto.displayName.trim(), zone: dto.zone,
+      project: dto.project?.trim() || null,
       buildingCode: dto.buildingCode?.trim() || null, location: dto.location?.trim() || null,
       rtspUrlEncrypted: this.cipher.encrypt(source.url), rtspConfigured: true,
       ...source.details,
@@ -92,6 +94,7 @@ export class CamerasService {
         id: plan.id,
         displayName: `${(dto.displayName || prefix).trim()} CH${plan.channel}`,
         zone: dto.zone ?? 0,
+        project: dto.project?.trim() || null,
         buildingCode: dto.buildingCode?.trim() || null,
         location: dto.location?.trim() || null,
         rtspUrlEncrypted: this.cipher.encrypt(plan.url), rtspConfigured: true,
@@ -110,7 +113,15 @@ export class CamerasService {
   }
 
   async findAll() {
-    return this.cameraRepo.find({ order: { id: 'ASC' } });
+    const cameras = await this.cameraRepo.find({ order: { id: 'ASC' } });
+    const now = Date.now();
+    // A stored 'online' is only as good as the check that produced it, and
+    // nothing expires it. Report what we actually know right now.
+    return cameras.map((camera) => ({
+      ...camera,
+      health: healthOf(camera, now),
+      statusStale: isStale(camera.lastHeartbeat, now),
+    }));
   }
 
   async findOne(id: string) {
@@ -205,13 +216,39 @@ export class CamerasService {
     };
   }
 
+  /**
+   * Cameras with at least one viewer right now, and how many.
+   *
+   * A camera that is delivering frames has already proved it is reachable,
+   * so the health prober skips it. Probing anyway would open a second RTSP
+   * session against the same channel, and recorders allow only a handful at
+   * once -- the check meant to confirm the camera was up could take it down.
+   */
+  private readonly watching = new Map<string, number>();
+
+  isBeingWatched(id: string): boolean {
+    return (this.watching.get(id) ?? 0) > 0;
+  }
+
+  private viewerJoined(id: string) {
+    this.watching.set(id, (this.watching.get(id) ?? 0) + 1);
+  }
+
+  viewerLeft(id: string) {
+    const left = (this.watching.get(id) ?? 1) - 1;
+    if (left > 0) this.watching.set(id, left);
+    else this.watching.delete(id);
+  }
+
   async openStream(playbackId: string, token: string, signal: AbortSignal) {
     this.streamTokens.verify(token, playbackId);
     const camera = await this.cameraRepo.createQueryBuilder('camera').addSelect('camera.rtspUrlEncrypted')
       .where('camera.playbackId = :playbackId', { playbackId }).getOne();
     if (!camera) throw new NotFoundException('Camera stream not found');
     if (!camera.enabled || !camera.rtspUrlEncrypted) throw new ConflictException('Camera stream is unavailable');
-    return this.ai.streamCamera(this.cipher.decrypt(camera.rtspUrlEncrypted), signal);
+    const upstream = await this.ai.streamCamera(this.cipher.decrypt(camera.rtspUrlEncrypted), signal);
+    if (upstream.ok) this.viewerJoined(camera.id);
+    return { upstream, cameraId: camera.id };
   }
 
   /**

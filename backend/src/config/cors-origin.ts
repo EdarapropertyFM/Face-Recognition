@@ -7,8 +7,15 @@
  * Error, which says nothing about the real cause.
  */
 
-/** Localhost and RFC1918 addresses: the machine itself and the office LAN. */
-const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/;
+/**
+ * Localhost and private addresses: the machine itself and the office LAN.
+ *
+ * 169.254.x.x (link-local / APIPA) is included because Windows assigns it to
+ * an interface with no DHCP lease, and the dashboard is regularly opened on
+ * exactly that address while testing. Leaving it out blocked the realtime
+ * event stream with a CORS error that retried forever.
+ */
+const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|169\.254\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/;
 
 /**
  * Development tunnels. A phone cannot use the camera over plain HTTP, so

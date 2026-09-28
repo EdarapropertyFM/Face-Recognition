@@ -8,7 +8,7 @@ import LoginPage      from './pages/LoginPage';
 import DashboardPage  from './pages/DashboardPage';
 import LiveWallPage   from './pages/LiveWallPage';
 import CamerasPage    from './pages/CamerasPage';
-import BuildingsPage  from './pages/BuildingsPage';
+import UnitsPage      from './pages/UnitsPage';
 import EnrollmentsPage from './pages/EnrollmentsPage';
 import EnrollmentPage from './pages/EnrollmentPage';
 import AlertsPage     from './pages/AlertsPage';
@@ -36,7 +36,9 @@ function AppRoutes() {
       <Route path="/"            element={<Protected module="dashboard">   <DashboardPage />   </Protected>} />
       <Route path="/livewall"    element={<Protected module="livewall">    <LiveWallPage />    </Protected>} />
       <Route path="/cameras"     element={<Protected module="cameras">     <CamerasPage />     </Protected>} />
-      <Route path="/buildings"   element={<Protected module="buildings">   <BuildingsPage />   </Protected>} />
+      <Route path="/units"       element={<Protected module="units">       <UnitsPage />       </Protected>} />
+      {/* The module was called Buildings before it grew the Project/Unit levels. */}
+      <Route path="/buildings"   element={<Navigate to="/units" replace />} />
       <Route path="/enrollments" element={<Protected module="enrollments"> <EnrollmentsPage /> </Protected>} />
       <Route path="/alerts"      element={<Protected module="alerts">      <AlertsPage />      </Protected>} />
       <Route path="/track"       element={<Protected module="track">       <TrackPage />       </Protected>} />

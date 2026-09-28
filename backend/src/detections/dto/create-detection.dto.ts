@@ -11,4 +11,8 @@ export class CreateDetectionDto {
   @IsOptional() @IsNumber() similarity?: number;
   @IsOptional() @IsObject() quality?: Record<string, unknown>;
   @IsOptional() @IsString() when?: string;
+  /** Path of the saved face image, relative to the AI snapshot directory. */
+  @IsOptional() @IsString() snapshot?: string;
+  /** Face-derived stranger identity from the AI; preferred over the track id. */
+  @IsOptional() @IsString() strangerKey?: string;
 }

@@ -18,7 +18,7 @@ const NAV_GROUPS = [
       { key: 'dashboard',   path: '/',            icon: <LayoutDashboard size={18} /> },
       { key: 'livewall',    path: '/livewall',     icon: <Tv2 size={18} /> },
       { key: 'cameras',     path: '/cameras',      icon: <Camera size={18} /> },
-      { key: 'buildings',   path: '/buildings',    icon: <Building2 size={18} /> },
+      { key: 'units',       path: '/units',        icon: <Building2 size={18} /> },
       { key: 'alerts',      path: '/alerts',       icon: <Bell size={18} /> },
       { key: 'track',       path: '/track',        icon: <Crosshair size={18} /> },
     ],

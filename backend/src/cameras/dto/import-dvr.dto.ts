@@ -44,6 +44,9 @@ export class ImportDvrDto {
   @IsOptional() @IsString() @MaxLength(64)
   buildingCode?: string;
 
+  @IsOptional() @IsString() @MaxLength(120)
+  project?: string;
+
   @IsOptional() @IsString() @MaxLength(160)
   location?: string;
 

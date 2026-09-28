@@ -18,6 +18,7 @@ import { HouseholdMemberInput, householdProblems, normalizeMember } from './hous
 
 import { Face } from '../faces/entities/face.entity';
 import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
+import { cleanResidences } from '../units/residence';
 import { UpdateEnrollmentDto } from './dto/update-enrollment.dto';
 import { Enrollment } from './entities/enrollment.entity';
 import { SecureStorageService } from '../secure-storage/secure-storage.service';
@@ -58,14 +59,28 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
     const identity = this.normalizedIdentity(createDto.owner as Record<string, unknown>);
     const ref = createDto.ref || `STMC-${Math.floor(100000 + Math.random() * 900000)}`;
     const storedOwner = await this.storage.storeEnrollmentOwner(ref, createDto.owner as Record<string, unknown>);
+    // A resident may hold several units. The first is the primary one and is
+    // mirrored into the flat building/unit columns the rest of the system
+    // still reads, so the two can never disagree.
+    const residences = cleanResidences(createDto.residences);
     const enrollment = this.enrollRepo.create({
       ...createDto,
+      residences,
+      building: residences[0]?.building || createDto.building,
+      unit: residences[0]?.unit || createDto.unit,
       ref,
       owner: storedOwner,
       schema: createDto.schema || 'stmc.enroll.v1',
       submittedAt: createDto.submittedAt || new Date().toISOString(),
-      // Drops a staff phone number and any under-16 National ID before storage.
-      family: (createDto.family ?? []).map((member) => normalizeMember(member as HouseholdMemberInput)),
+      // Drops a staff phone number and any under-16 National ID before storage;
+      // the member's photos and ID card are encrypted to disk like the owner's.
+      family: await Promise.all((createDto.family ?? []).map(async (member, i) => {
+        const input = member as HouseholdMemberInput;
+        const normalized = normalizeMember(input);
+        const images = await this.storage.storeEnrollmentOwner(ref,
+          { faces: input.faces ?? {}, nationalIdCard: normalized.nationalIdCard }, `member-${i}-`);
+        return { ...normalized, faces: images.faces, nationalIdCard: images.nationalIdCard };
+      })),
       cars: createDto.cars ?? [],
       status: 'pending',
       nationalIdNormalized: identity.nid || (null as unknown as string),
@@ -126,7 +141,9 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
     // CONFIRMED match counts: 'tentative' is deliberately not enough to refuse
     // somebody a registration. A match against this draft's own capture is
     // the applicant recognising themselves, which is expected, not a duplicate.
-    if (isDuplicateMatch(face.decision, (face as { person_id?: string }).person_id, ignoreAiPersonId)) {
+    const matchedId = (face as { person_id?: string }).person_id;
+    if (isDuplicateMatch(face.decision, matchedId, ignoreAiPersonId)
+      && !(matchedId && await this.isAbandonedCapture(matchedId))) {
       return {
         ok: false,
         duplicate: true,
@@ -156,7 +173,11 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
     }
 
     const existing = await this.aiGateway.identify(images[0]);
-    if (existing) {
+    // The applicant's own earlier, never-submitted capture (page refreshed,
+    // draft lost): replace it instead of refusing them as a duplicate.
+    if (existing?.personId && await this.isAbandonedCapture(existing.personId)) {
+      await this.aiGateway.deletePerson(existing.personId);
+    } else if (existing) {
       throw new ConflictException(
         `This face is already registered${existing.name ? ` as ${existing.name}` : ''}`,
       );
@@ -331,6 +352,9 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
           bldg: locked.building,
           unit: locked.unit,
           aiPersonId: provisionedPersonId,
+          // Marks this person as having come through the enrolment site,
+          // which is what the Face Database lists.
+          enrollmentRef: locked.ref,
         });
         const savedFace = await faces.save(face);
 
@@ -347,10 +371,11 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
             idno: String(member.nid ?? ''),
             issuer: '',
             enroll: new Date().toISOString().slice(0, 10),
-            img: '',
+            img: String(member.faces?.front ?? ''),
             bldg: locked.building,
             unit: locked.unit,
             aiPersonId: member.aiPersonId,
+            enrollmentRef: locked.ref,
           }));
           memberRenames.push([member.aiPersonId, String(member.name ?? ''), String(member.relation ?? 'resident')]);
         }
@@ -478,11 +503,27 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
       throw new BadGatewayException('Face capture is required');
     }
     const match = await this.aiGateway.identify(front);
-    if (match && match.personId !== ownAiPersonId) {
+    if (match && match.personId !== ownAiPersonId && !(match.personId && await this.isAbandonedCapture(match.personId))) {
       throw new ConflictException(
         `This face is already registered${match.name ? ` as ${match.name}` : ''}`,
       );
     }
+  }
+
+  /**
+   * A provisional capture that no enrolment or face has claimed: a wizard the
+   * applicant abandoned (refresh, closed tab). Matching one is the same person
+   * trying again, not a repeat registration.
+   */
+  private async isAbandonedCapture(aiPersonId: string) {
+    const person = (await this.aiGateway.listPersons().catch(() => []))
+      .find((p) => p.person_id === aiPersonId);
+    if (!person || person.role !== PROVISIONAL_ROLE) return false;
+    const claimed = await this.enrollRepo.count({ where: { aiPersonId } })
+      + await this.faceRepo.count({ where: { aiPersonId } })
+      + await this.enrollRepo.createQueryBuilder('e')
+        .where('e.family @> :m::jsonb', { m: JSON.stringify([{ aiPersonId }]) }).getCount();
+    return claimed === 0;
   }
 
   private async faceImages(enrollment: Enrollment) {
@@ -524,6 +565,10 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async hydrate(enrollment: Enrollment) {
-    return { ...enrollment, owner: await this.storage.hydrateEnrollmentOwner(enrollment.owner) };
+    return {
+      ...enrollment,
+      owner: await this.storage.hydrateEnrollmentOwner(enrollment.owner),
+      family: await Promise.all((enrollment.family ?? []).map((m) => this.storage.hydrateEnrollmentOwner(m ?? {}))),
+    };
   }
 }
