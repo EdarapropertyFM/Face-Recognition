@@ -14,9 +14,9 @@ import { isStrangerId } from '../detections/subject';
 export class DashboardService {
   constructor(@InjectRepository(Camera) private cameras: Repository<Camera>, @InjectRepository(Alert) private alerts: Repository<Alert>, @InjectRepository(Incident) private incidents: Repository<Incident>, @InjectRepository(Face) private faces: Repository<Face>, private units: UnitsService, @InjectRepository(Enrollment) private enrollments: Repository<Enrollment>, @InjectRepository(Detection) private detections: Repository<Detection>) { }
   async summary() {
-    const [totalCameras, onlineCameras, newAlerts, openIncidents, watchlist, alerts, incidents, buildingList, today, pendingEnrollments, enrolledPeople] = await Promise.all([
+    const [totalCameras, onlineCameras, newAlerts, openIncidents, alerts, incidents, buildingList, today, pendingEnrollments, enrolledPeople] = await Promise.all([
       this.cameras.count(), this.cameras.count({ where: { status: 'online' } }), this.alerts.count({ where: { status: 'new' } }),
-      this.incidents.createQueryBuilder('incident').where('incident.status != :status', { status: 'closed' }).getCount(), this.faces.count({ where: { type: 'watch' } }),
+      this.incidents.createQueryBuilder('incident').where('incident.status != :status', { status: 'closed' }).getCount(),
       this.alerts.find({ order: { when: 'DESC' }, take: 3 }), this.incidents.find({ order: { when: 'DESC' }, take: 4 }), this.buildingOverview(),
       this.seenToday(), this.enrollments.count({ where: { status: 'pending' } }),
       this.faces.count({ where: { enrollmentRef: Not(IsNull()) } }),
@@ -25,7 +25,7 @@ export class DashboardService {
     const alertFaces = faceIds.length ? await this.faces.createQueryBuilder('face').where('face.id IN (:...faceIds)', { faceIds }).getMany() : [];
     return {
       metrics: {
-        totalCameras, onlineCameras, newAlerts, openIncidents, watchlist,
+        totalCameras, onlineCameras, newAlerts, openIncidents,
         ...today, pendingEnrollments, enrolledPeople,
       },
       alerts, incidents, faces: alertFaces, buildings: buildingList,

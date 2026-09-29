@@ -136,9 +136,7 @@ export default function UnitsPage() {
                         <thead>
                           <tr>
                             <th style={{ paddingInlineStart: 64 }}>{lang ? 'الوحدة' : 'Unit'}</th>
-                            <th>{lang ? 'الدور' : 'Floor'}</th>
                             <th>{lang ? 'اسم المالك' : 'Owner name'}</th>
-                            <th>{lang ? 'هاتف المالك' : 'Owner phone'}</th>
                             <th>{lang ? 'التسجيل في STMC' : 'STMC registration'}</th>
                           </tr>
                         </thead>
@@ -146,9 +144,7 @@ export default function UnitsPage() {
                           {b.units.map((u) => (
                             <tr key={u.id}>
                               <td className="mono" style={{ paddingInlineStart: 64, color: '#fff' }}>{u.unit}</td>
-                              <td>{u.floor || '—'}</td>
                               <td>{u.ownerName ? <b>{u.ownerName}</b> : <span style={{ color: 'var(--muted)' }}>{lang ? 'غير محدد' : 'No owner listed'}</span>}</td>
-                              <td className="mono" style={{ color: 'var(--muted)' }}>{u.ownerPhone || '—'}</td>
                               <td><StmcStatus registrations={u.registrations} lang={lang} /></td>
                             </tr>
                           ))}

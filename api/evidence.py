@@ -205,3 +205,37 @@ def frame_score(face_width_px: int, blur_score: float) -> float:
     width = max(0.0, float(face_width_px))
     sharpness = max(0.0, float(blur_score))
     return width + sharpness / (sharpness + 1.0)
+
+
+def purge_older_than(data_dir: Path, days: int) -> int:
+    """Delete saved sightings past their retention period.
+
+    The privacy notice promises faces are removed after a set time, so
+    something has to remove them; rows disappearing from a table while the
+    images stay on disk would make that promise false.
+    """
+    if days <= 0:
+        return 0
+    cutoff = time.time() - days * 86400
+    root = evidence_root(data_dir)
+    removed = 0
+    if not root.is_dir():
+        return 0
+    for path in list(root.rglob("*")):
+        if not path.is_file():
+            continue
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+                removed += 1
+        except OSError as error:
+            log.warning("could not delete %s (%s)", path, error)
+    # Tidy up the day folders left behind.
+    for folder in sorted((p for p in root.iterdir() if p.is_dir()), reverse=True):
+        try:
+            next(folder.iterdir())
+        except StopIteration:
+            folder.rmdir()
+        except OSError:
+            pass
+    return removed

@@ -35,8 +35,6 @@ export const FACES = [
   { id: "F-0004", name: ["Housekeeping — Sara","خدمة - سارة"],   type: "staff",   role: ["Staff · Clubhouse",  "موظف · النادي"],            idno: "EMP-1140", issuer: "STMC", enroll: "2026-01-22", img: null, bldg: "—", unit: "—" },
   { id: "F-0087", name: ["Stranger",           "غريب"],           type: "unknown", role: ["Seen at WTR B1 entrance","ظهر عند مدخل WTR B1"], idno: "—", issuer: "—", enroll: "2026-09-15", img: null, bldg: "WTR-B1", unit: "—" },
   { id: "F-0091", name: ["Stranger",           "غريب"],           type: "unknown", role: ["Seen at WTR B5 entrance","ظهر عند مدخل WTR B5"], idno: "—", issuer: "—", enroll: "2026-09-16", img: null, bldg: "WTR-B5", unit: "—" },
-  { id: "F-0044", name: ["Khaled Nabil",        "خالد نبيل"],     type: "watch",   role: ["BANNED · Trespass",  "محظور · تعدٍّ"],           idno: "301...", issuer: "Cairo",  enroll: "2026-08-30", img: null, ban: "SEF-01-02", bldg: "WTR-B2", unit: "—" },
-  { id: "F-0052", name: ["Visitor — flagged",   "زائر - مُعلَّم"], type: "watch",   role: ["BANNED · Vandalism", "محظور · إتلاف"],          idno: "—",     issuer: "—",      enroll: "2026-09-10", img: null, ban: "SEF-01-02", bldg: "—",      unit: "—" },
 ];
 
 function fmt(d) {
@@ -59,6 +57,8 @@ const DETECTION_PLAN = [
 const rawDetections = [];
 DETECTION_PLAN.forEach(([fid, evs]) => {
   const f = FACES.find(x => x.id === fid);
+  // A plan entry for a face no longer in FACES must not crash the whole app at load.
+  if (!f) return;
   evs.forEach((e, i) => {
     const d = new Date(NOW - e[1] * 60000);
     rawDetections.push({
@@ -132,11 +132,9 @@ export const ROLES = {
 };
 
 export const LIVE_CAM_BOXES = {
-  "CAM-Gate-03":   [{ cls: "watch",   x: 38, y: 30, label: "F-0044 96%", face: "F-0044" }],
   "CAM-Plaza-11":  [{ cls: "unknown", x: 52, y: 40, label: "F-0087 91%", face: "F-0087" }],
   "CAM-Res-N-22":  [{ cls: "known",   x: 30, y: 34, label: "Ahmed 98%",  face: "F-0001" }, { cls: "known", x: 60, y: 44, label: "Mona 95%", face: "F-0002" }],
   "CAM-Res-S-08":  [{ cls: "known",   x: 44, y: 38, label: "Owner 97%",  face: "F-0001" }],
-  "CAM-Club-04":   [{ cls: "watch",   x: 50, y: 36, label: "F-0052 88%", face: "F-0052" }],
   "CAM-Park-B2-06":[{ cls: "unknown", x: 46, y: 42, label: "F-0091 84%", face: "F-0091" }],
   "CAM-Gate-01":   [{ cls: "staff",   x: 40, y: 32, label: "Guard 99%",  face: "F-0003" }],
 };

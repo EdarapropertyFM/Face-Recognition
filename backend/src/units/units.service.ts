@@ -10,6 +10,7 @@ import { Project } from './entities/project.entity';
 import { CreateBuildingDto, CreateProjectDto, UpdateProjectDto } from './dto/project.dto';
 import { UpdateBuildingSettingDto } from './dto/update-building-setting.dto';
 import { Residence, matches, residencesOf, unitCodesFor } from './residence';
+import { UnitRecord } from './entities/unit-record.entity';
 
 export const UNASSIGNED = 'Unassigned';
 
@@ -63,6 +64,7 @@ export class UnitsService {
     @InjectRepository(Detection) private readonly detections: Repository<Detection>,
     @InjectRepository(BuildingSetting) private readonly settings: Repository<BuildingSetting>,
     @InjectRepository(Project) private readonly projects: Repository<Project>,
+    @InjectRepository(UnitRecord) private readonly register: Repository<UnitRecord>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -270,8 +272,17 @@ export class UnitsService {
    * then a unit, so none of the three can be mistyped.
    */
   async enrollmentOptions() {
-    const [{ projects }, settings] = await Promise.all([this.tree(), this.settings.find()]);
+    const [{ projects }, settings, registered] = await Promise.all([
+      this.tree(), this.settings.find(), this.register.find({ select: { project: true, building: true, unit: true } }),
+    ]);
     const byKey = new Map(settings.map((row) => [`${row.project}${SEP}${row.code}`, row]));
+    // Units from the unit register (Units page), in natural order: 4.6C-2 before 4.6C-10.
+    const fromRegister = new Map<string, string[]>();
+    for (const r of registered) {
+      const key = `${r.project}${SEP}${r.building}`;
+      fromRegister.set(key, [...(fromRegister.get(key) ?? []), r.unit]);
+    }
+    for (const list of fromRegister.values()) list.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     return projects
       .filter((project) => project.project !== UNASSIGNED && project.active !== false)
       .map((project) => ({
@@ -283,7 +294,8 @@ export class UnitsService {
             return {
               code: building.code,
               name: building.name,
-              units: unitCodesFor(building.code, setting?.totalUnits ?? 0, setting?.unitCodes ?? []),
+              units: fromRegister.get(`${project.project}${SEP}${building.code}`)
+                ?? unitCodesFor(building.code, setting?.totalUnits ?? 0, setting?.unitCodes ?? []),
             };
           })
           .filter((building) => building.units.length),

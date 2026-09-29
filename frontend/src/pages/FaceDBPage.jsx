@@ -66,7 +66,6 @@ export default function FaceDBPage() {
           <option value="owner">👤 {lang ? 'الملاك' : 'Owners'}</option>
           <option value="staff">{lang ? 'الموظفون' : 'Staff'}</option>
           <option value="stranger">❓ {lang ? 'الغرباء' : 'Strangers'}</option>
-          <option value="watch">⛔ {lang ? 'قائمة المنع' : 'Watchlist'}</option>
         </select>
         <div className="grow" />
         <button className="btn"><UserPlus size={14} /> {lang ? 'تسجيل وجه' : 'Enroll Face'}</button>

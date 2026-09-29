@@ -16,12 +16,21 @@ const DEMO_OWNERS = [
   'Nour El-Din Adel', 'Heba Mahmoud', 'Youssef Ibrahim', 'Dina Samir', 'Tarek Zaki',
   'Laila Fathy', 'Mahmoud Gamal', 'Rania Khaled', 'Hany Saleh', 'Yasmin Ashraf', 'Amr Nabil',
 ];
+// Real owners, supplied by the property manager (source 'import').
+const REAL_ROWS: Array<[string, string, string, string]> = [
+  ['West Town Residence', '4.6-C', '4.6C-1', 'Khaled Mohamed El Toukhy Mohamed Abdel Baqy Mohamed'],
+  ['West Town Residence', '4.6-C', '4.6C-2', 'Emad Ahmed Abdelrahman Dawbi'],
+  ['West Town Residence', '4.6-C', '4.6C-3', 'Mohamed Adel Bdeer Mostafa Samak'],
+  ['West Town Residence', '4.6-C', '4.6C-4', 'Marwan Tarik Fathy Abd El Gani'],
+  ['West Town Residence', '4.6-C', '4.6C-5', 'Khaled Mohamed El Toukhy Mohamed Abdel Baqy Mohamed'],
+  ['West Town Residence', '4.6-C', '4.6C-6', 'Khalid Gamal EL Din Ezzat Aly EL Hosary'],
+  ['West Town Residence', '4.6-C', '4.6C-7', 'Shimaa Mohamed Mostafa Mohamed'],
+  ['West Town Residence', '4.6-C', '4.6C-8', 'Muhanad Abdou Razmeh'],
+];
+
 const DEMO_LAYOUT: Array<[string, string, number]> = [
   ['West Town Residence', '4.5-C', 8],
-  ['West Town Residence', '4.6-C', 8],
   ['West Town Residence', '4.7-C', 6],
-  ['Edara Gardens', 'B1', 10],
-  ['Edara Gardens', 'B2', 10],
 ];
 
 function demoRows(): Partial<UnitRecord>[] {
@@ -30,15 +39,17 @@ function demoRows(): Partial<UnitRecord>[] {
   for (const [project, building, count] of DEMO_LAYOUT) {
     for (let i = 1; i <= count; i++) {
       const floor = Math.ceil(i / 2);
-      const unit = `${building}-${floor}0${((i - 1) % 2) + 1}`;
+      const unit = `${building.replace(/-/g, '')}-${i}`;
       const vacant = (n + i) % 7 === 0;               // a few unsold / vacant units
       rows.push({
         project, building, unit, floor: String(floor), source: 'demo',
         ownerName: vacant ? null : DEMO_OWNERS[n % DEMO_OWNERS.length],
-        ownerPhone: vacant ? null : `010${String(10000000 + n * 7919).slice(0, 8)}`,
       });
       n++;
     }
+  }
+  for (const [project, building, unit, ownerName] of REAL_ROWS) {
+    rows.push({ project, building, unit, ownerName, source: 'import' });
   }
   return rows;
 }
@@ -83,7 +94,7 @@ export class UnitRegistryService implements OnModuleInit {
     }
 
     const needle = query.trim().toLowerCase();
-    const matches = (r: UnitRecord) => !needle || [r.project, r.building, r.unit, r.ownerName, r.ownerPhone]
+    const matches = (r: UnitRecord) => !needle || [r.project, r.building, r.unit, r.ownerName]
       .some((f) => (f ?? '').toLowerCase().includes(needle));
 
     const projects = new Map<string, Map<string, unknown[]>>();
@@ -108,7 +119,11 @@ export class UnitRegistryService implements OnModuleInit {
       },
       projects: [...projects].map(([project, buildings]) => ({
         project,
-        buildings: [...buildings].map(([code, list]) => ({ code, units: list })),
+        buildings: [...buildings].map(([code, list]) => ({
+          code,
+          // Natural order: 4.6C-2 before 4.6C-10.
+          units: (list as UnitRecord[]).sort((x, y) => x.unit.localeCompare(y.unit, undefined, { numeric: true })),
+        })),
       })),
     };
   }

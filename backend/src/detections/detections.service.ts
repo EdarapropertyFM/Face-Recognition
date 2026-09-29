@@ -150,16 +150,17 @@ export class DetectionsService {
     if (!setting) return null;
     // Movement with no recognisable face: always alert (someone is there).
     if (detection.type === 'motion') return this.alertOnce(detection, 'motion');
-    const watch = detection.type === 'watch';
-    const unknown = !watch && (detection.type === 'unknown' || detection.decision === 'unknown');
-    // conf is cosine similarity x 100, and the AI already decided whether it
-    // is a match (CONFIRMED at >= 0.40 in config.yaml), so a percentage
-    // threshold like 85 would block every real match. Trust the AI decision:
-    // a named alert needs 'confirmed'; 'tentative' is too unsure to name anyone.
-    const confirmed = detection.decision === 'confirmed' || detection.conf >= setting.threshold;
-    if (watch && (!setting.alertWatch || !confirmed)) return null;
-    if (unknown && !setting.alertStrangers) return null;
-    if (!watch && !unknown && (!setting.alertOwners || !confirmed)) return null;
+    // Watchlist and banned handling belong to a later phase; there is no
+    // such list yet, so a detection is either somebody we recognise or
+    // somebody we do not.
+    const unknown = detection.type === 'unknown' || detection.decision === 'unknown';
+    // The AI has already decided whether this is a match, using the
+    // threshold configured in Settings. Re-testing conf against that same
+    // number here would double-apply it and reject real matches, because
+    // conf is the similarity of the winning face, not a separate score.
+    const confirmed = detection.decision === 'confirmed';
+    if (unknown) return setting.alertStrangers ? this.alertOnce(detection, detection.face ?? 'unknown') : null;
+    if (!setting.alertOwners || !confirmed) return null;
     return this.alertOnce(detection, detection.face ?? 'unknown');
   }
 

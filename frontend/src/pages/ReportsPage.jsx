@@ -18,7 +18,6 @@ export default function ReportsPage() {
     { type: 'known',   label: lang ? 'مُلاّك ومقيمون' : 'Owners & Residents', color: 'var(--green)' },
     { type: 'staff',   label: lang ? 'موظفو الأمن والخدمات' : 'Staff & Security', color: 'var(--accent)' },
     { type: 'unknown', label: lang ? 'غرباء' : 'Strangers', color: 'var(--amber)' },
-    { type: 'watch',   label: lang ? 'قائمة المنع / محظورون' : 'Watchlist / Banned', color: 'var(--red)' },
   ].map(x => ({ ...x, count: DETECTIONS.filter(d => d.type === x.type).length }));
   const maxType = Math.max(...byType.map(x => x.count), 1);
 
@@ -40,7 +39,6 @@ export default function ReportsPage() {
 
   // KPIs
   const totalDetections = DETECTIONS.length;
-  const watchHits = DETECTIONS.filter(d => d.type === 'watch').length;
   const pendingEnroll = PENDING_ENROLLMENTS.length;
 
   return (
@@ -67,14 +65,6 @@ export default function ReportsPage() {
           </div>
           <div style={{ fontSize: 32, fontWeight: 800, color: '#fff' }}>{totalDetections}</div>
           <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 8 }}>+12% vs last week</div>
-        </div>
-        <div className="panel glass-panel" style={{ padding: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-            <div style={{ padding: 10, background: 'rgba(231,76,60,0.15)', borderRadius: 10, color: 'var(--red)' }}><ShieldAlert size={20} /></div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase' }}>{lang ? 'تطابقات قائمة المنع' : 'Watchlist Hits'}</div>
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 800, color: '#fff' }}>{watchHits}</div>
-          <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 8 }}>Immediate action required</div>
         </div>
         <div className="panel glass-panel" style={{ padding: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>

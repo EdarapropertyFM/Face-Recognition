@@ -1,36 +1,26 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post } from '@nestjs/common';
 import { SettingsService } from './settings.service';
-import { CreateSettingDto } from './dto/create-setting.dto';
 import { UpdateSettingDto } from './dto/update-setting.dto';
 import { Roles } from '../auth/auth.decorators';
 
 @Controller('settings')
 @Roles('Admin')
 export class SettingsController {
-  constructor(private readonly settingsService: SettingsService) {}
-
-  @Post()
-  create(@Body() createSettingDto: CreateSettingDto) {
-    return this.settingsService.create(createSettingDto);
-  }
+  constructor(private readonly settings: SettingsService) {}
 
   @Get()
-  findAll() {
-    return this.settingsService.findAll();
+  get() {
+    return this.settings.get();
   }
 
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.settingsService.findOne(+id);
+  @Patch()
+  update(@Body() dto: UpdateSettingDto) {
+    return this.settings.update(dto);
   }
 
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() updateSettingDto: UpdateSettingDto) {
-    return this.settingsService.update(+id, updateSettingDto);
-  }
-
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.settingsService.remove(+id);
+  /** Run the retention purge now, rather than waiting for the hourly pass. */
+  @Post('purge')
+  purge() {
+    return this.settings.purge();
   }
 }

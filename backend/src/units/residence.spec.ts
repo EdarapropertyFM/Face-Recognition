@@ -66,8 +66,9 @@ describe('unitCodesFor', () => {
     expect(unitCodesFor('4.6-C', 99, ['4.6-C-01', '4.6-C-PH'])).toEqual(['4.6-C-01', '4.6-C-PH']);
   });
 
-  it('generates padded codes from the unit count', () => {
-    expect(unitCodesFor('4.6-C', 3, [])).toEqual(['4.6-C-01', '4.6-C-02', '4.6-C-03']);
+  it('generates register-style codes from the unit count (4.6C-1, no padding)', () => {
+    expect(unitCodesFor('4.6-C', 3, [])).toEqual(['4.6C-1', '4.6C-2', '4.6C-3']);
+    expect(unitCodesFor('4.6-C', 10, [])[9]).toBe('4.6C-10');
   });
 
   it('offers nothing until someone says how many units there are', () => {

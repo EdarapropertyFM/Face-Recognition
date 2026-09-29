@@ -49,6 +49,19 @@ export class AiGatewayService {
     return this.request(`/monitor/${encodeURIComponent(cameraId)}`, { method: 'DELETE' });
   }
 
+  /** Push the match threshold to the service that does the comparing. */
+  setMatchThreshold(value: number) {
+    return this.request('/config/matching', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threshold_high: value }),
+    });
+  }
+
+  /** Delete saved sighting images older than the retention period. */
+  purgeEvidence(days: number) {
+    return this.request(`/evidence/purge?days=${days}`, { method: 'POST' }, 30000);
+  }
+
   probeCamera(source: string) {
     return this.request('/camera/probe', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source }),

@@ -91,13 +91,16 @@ export class SeedService implements OnModuleInit {
 
     await this.settingRepo.save({
       id: 'system',
-      threshold: 85,
-      retStd: 30,
-      retInc: 365,
-      retLog: 90,
-      alertOwners: true,
+      // Matches config.yaml. The old value of 85 was a percentage invented
+      // for a slider and never corresponded to anything the AI used.
+      threshold: 40,
+      retStd: 90,
+      retLog: 365,
+      // Off by default: a recognised resident walking through their own
+      // lobby is not an event worth waking anyone for.
+      alertOwners: false,
       alertStrangers: true,
-      alertWatch: true
+      purgeEnabled: true,
     });
   }
 

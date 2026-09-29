@@ -693,6 +693,45 @@ def webcam_cancel(person_id: str, request: Request):
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@app.patch("/config/matching", summary="Adjust the match thresholds at runtime")
+def set_matching(body: dict, request: Request):
+    """Change how similar a face must be before it counts as a match.
+
+    Applied to the running service so it takes effect on the next frame:
+    restarting to change a threshold would drop every camera connection.
+    Bounded here as well as in the caller, because this endpoint is reachable
+    independently and an out-of-range value silently breaks recognition.
+    """
+    s = fr(request)
+    high = body.get("threshold_high")
+    if high is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "threshold_high is required")
+    try:
+        value = float(high)
+    except (TypeError, ValueError):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "threshold_high must be a number")
+    if not 0.25 <= value <= 0.70:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST,
+                            "threshold_high must be between 0.25 and 0.70")
+    with s.lock:
+        s.config.matching.threshold_high = value
+        # The low threshold marks "possible but unsure"; it has to stay below
+        # the confident one or every match would be reported as tentative.
+        s.config.matching.threshold_low = min(s.config.matching.threshold_low, value - 0.05)
+    log.info("match threshold set to %.2f (low %.2f)", value, s.config.matching.threshold_low)
+    return {"model_version": s.model_version,
+            "threshold_high": value,
+            "threshold_low": s.config.matching.threshold_low}
+
+
+@app.post("/evidence/purge", summary="Delete saved sightings past their retention period")
+def purge_evidence(request: Request, days: int = Query(90, ge=1, le=3650)):
+    from api import evidence as _evidence
+    removed = _evidence.purge_older_than(fr(request).config.data_dir, days)
+    log.info("evidence purge: removed %d file(s) older than %d days", removed, days)
+    return {"removed": removed, "days": days}
+
+
 @app.get("/evidence/{rel:path}", summary="Full-frame still or clip saved with a detection")
 def evidence_file(rel: str, request: Request):
     """Serve one evidence file: a full-frame still or a short clip.

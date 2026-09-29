@@ -1101,3 +1101,49 @@ mark {
   .sight { grid-template-columns: 84px 1fr; }
   .sight-conf { grid-column: 2; justify-self: start; }
 }
+
+/* ---- Settings ---------------------------------------------------------- */
+.set-block {
+  background: var(--stat-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.set-block + .set-block { margin-top: 14px; }
+.set-block > label { display: block; font-size: 13px; margin-bottom: 10px; }
+.set-block input[type=range] { width: 100%; }
+
+.set-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.set-warn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--amber, #e0a458);
+}
+
+.set-toggles { display: flex; flex-direction: column; gap: 16px; }
+
+.set-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.set-toggle > div:first-child { display: flex; flex-direction: column; gap: 2px; }
+.set-toggle span { font-size: 13px; color: var(--txt); }
+.set-toggle small { font-size: 11.5px; color: var(--muted); }
+
+.set-switch { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.set-switch > span { font-size: 11px; color: var(--muted); min-width: 26px; text-align: end; }
+.set-switch .sw:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

@@ -46,10 +46,18 @@ export function residencesOf(
 }
 
 /** Unit codes for a building: the exact list if given, else generated. */
+/** "4.6-C" -> "4.6C": the prefix unit numbers use in the community's register. */
+export function unitPrefix(buildingCode: string): string {
+  return buildingCode.replace(/-/g, '');
+}
+
+/**
+ * Unit codes for a building: the exact list when one was entered, otherwise
+ * generated from the count in the register's format, 4.6C-1 ... 4.6C-n.
+ */
 export function unitCodesFor(buildingCode: string, totalUnits: number, unitCodes: string[]): string[] {
   if (unitCodes?.length) return unitCodes;
-  return Array.from({ length: Math.max(0, totalUnits) }, (_, index) =>
-    `${buildingCode}-${String(index + 1).padStart(2, '0')}`);
+  return Array.from({ length: Math.max(0, totalUnits) }, (_, index) => `${unitPrefix(buildingCode)}-${index + 1}`);
 }
 
 /** Case-insensitive substring match used by the Units search box. */
