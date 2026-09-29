@@ -1,79 +1,189 @@
-import { ArrowLeft, ArrowRight, Camera, Check, RefreshCw, ShieldCheck, VideoOff } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowLeft, ArrowRight, Camera, Check, ChevronsLeft, ChevronsRight, Glasses, RefreshCw, Smartphone, Sun, VideoOff } from 'lucide-react';
 import EnrollmentProgress from './EnrollmentProgress';
 import { FACE_POSES, useFaceCapture } from '../../hooks/useFaceCapture';
+import { unlockCaptureSound } from '../../utils/captureSound';
 
+/**
+ * Uber-style face capture step:
+ *  - Full-width camera fills the card
+ *  - Dark overlay with a large oval cutout
+ *  - Instruction at top, live status pill at bottom of the feed
+ *  - Three dot-steps show progress (front / left / right)
+ *  - Captures fire automatically, with a shutter pop sound
+ */
 export default function FaceCaptureStep({ initialCaptures, onBack, onComplete, onCapturesChange, onAiPersonId }) {
+  // Intro first (tips + Start), like Uber's selfie check. The Start tap also
+  // unlocks the capture sound on iPhone. Skipped when resuming with photos.
+  const [started, setStarted] = useState(initialCaptures.length > 0);
   const {
-    videoRef, cameraState, captures, poseIndex, message, error,
+    videoRef, cameraState, captures, poseIndex, message, error, turn,
     holdProgress, currentPose, startCamera, restartCapture,
-  } = useFaceCapture({ initialCaptures, onCapturesChange, onAiPersonId });
-  // Only 'complete' means the face reached the gallery. 'enrolling' and
-  // 'enroll-failed' must not let the applicant continue: without an AI person
-  // the registration cannot be recognized later.
-  const complete = cameraState === 'complete';
+  } = useFaceCapture({ initialCaptures, onCapturesChange, onAiPersonId, autoStart: started });
+  // The preview is mirrored, so "turn left" means toward the left of the screen.
+  const side = currentPose.key === 'left' ? 'left' : currentPose.key === 'right' ? 'right' : null;
+
+  if (!started) {
+    return (
+      <section className="enrollment-card face-capture-step" aria-labelledby="fc-intro-title">
+        <EnrollmentProgress currentStep={2} totalSteps={5} />
+        <div className="fc-intro">
+          <div className="fc-intro-art" aria-hidden="true"><div className="fc-intro-oval" /></div>
+          <p className="enrollment-step-label" style={{ margin: 0 }}>Step 2 of 5</p>
+          <h1 id="fc-intro-title" className="fc-title">Let's take 3 quick photos</h1>
+          <p className="fc-subtitle">Look straight, then turn left, then right. It takes about 10 seconds and photos are taken automatically.</p>
+          <ul className="fc-tips">
+            <li><Sun size={18} aria-hidden="true" /> Find good light on your face</li>
+            <li><Glasses size={18} aria-hidden="true" /> Remove hats, sunglasses and masks</li>
+            <li><Smartphone size={18} aria-hidden="true" /> Hold the phone at eye level</li>
+          </ul>
+          <button className="enrollment-button" type="button" onClick={() => { unlockCaptureSound(); setStarted(true); }}>
+            <Camera size={18} /> Start
+          </button>
+          <button className="enrollment-button secondary" type="button" onClick={onBack} style={{ marginTop: 10 }}>
+            <ArrowLeft size={18} /> Back
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  const complete  = cameraState === 'complete';
   const enrolling = cameraState === 'enrolling';
   const duplicate = cameraState === 'duplicate';
+  const failed    = cameraState === 'enroll-failed';
+  const isActive  = cameraState === 'active';
+
+  const pillClass = [
+    'fc-pill',
+    error              ? 'fc-pill--error'   : '',
+    holdProgress > 0 && !error ? 'fc-pill--ready' : '',
+  ].join(' ').trim();
 
   return (
-    <section className="enrollment-card face-capture-step" aria-labelledby="face-capture-title">
+    <section className="enrollment-card face-capture-step" aria-labelledby="fc-title">
+      {/* ── Wizard progress bar ─────────────────── */}
       <EnrollmentProgress currentStep={2} totalSteps={5} />
-      <p className="enrollment-step-label">Step 2 of 5 · Face capture</p>
-      <h1 id="face-capture-title">Guided face capture</h1>
-      <p className="enrollment-subtitle">Keep the camera open and follow each instruction. The AI captures automatically as soon as the face is clear and steady.</p>
 
-      <div className={`camera-stage ${complete ? 'is-complete' : ''}`}>
-        <div className="camera-instruction" aria-live="polite">
-          {complete ? 'Face capture complete' : currentPose.title}
+      {/* ── Heading row ─────────────────────────── */}
+      <div className="fc-header">
+        <p className="enrollment-step-label" style={{ margin: 0 }}>Step 2 of 5</p>
+        <h1 id="fc-title" className="fc-title">Take your photo</h1>
+        <p className="fc-subtitle">
+          Position your face inside the oval and follow the prompts. Photos are taken automatically — no button needed.
+        </p>
+      </div>
+
+      {/* ── Camera area ─────────────────────────── */}
+      <div className={`fc-camera-wrap ${complete ? 'fc-camera-wrap--done' : ''}`}>
+
+        {/* Live instruction banner */}
+        <div className="fc-instruction" aria-live="polite" aria-atomic="true">
+          {complete
+            ? '✅ All done!'
+            : `${currentPose.emoji} ${currentPose.title}`}
         </div>
-        <div className="camera-viewport">
+
+        {/* Video + overlays */}
+        <div className="fc-viewport">
           <video ref={videoRef} autoPlay muted playsInline aria-label="Live camera preview" />
-          <div className="camera-shade" aria-hidden="true"><span /></div>
-          {cameraState !== 'active' ? (
-            <div className="camera-state">
-              {cameraState === 'starting' || enrolling
-                ? <RefreshCw className="spin" size={32} />
-                : complete ? <Check size={38} /> : <VideoOff size={34} />}
+
+          {/* Oval overlay — dark surround + white oval border */}
+          <div className="fc-shade" aria-hidden="true">
+            <div className={`fc-oval ${holdProgress > 0 ? 'fc-oval--locking' : ''} ${complete ? 'fc-oval--done' : ''}`} />
+          </div>
+
+          {/* Side poses: big arrow toward the side to turn, and a turn meter. */}
+          {cameraState === 'active' && side && (
+            <>
+              <div className={`fc-turn-arrow fc-turn-arrow--${side} ${turn >= 1 ? 'fc-turn-arrow--ok' : ''}`} aria-hidden="true">
+                {side === 'left' ? <ChevronsLeft size={54} /> : <ChevronsRight size={54} />}
+              </div>
+              <div className={`fc-turn-meter fc-turn-meter--${side}`} aria-label={`Head turn ${Math.round(turn * 100)}%`}>
+                <span style={{ width: `${Math.round(turn * 100)}%` }} className={turn >= 1 ? 'ok' : ''} />
+              </div>
+            </>
+          )}
+
+          {/* Hold-to-capture progress arc (bar at bottom of oval) */}
+          {isActive && holdProgress > 0 && (
+            <div className="fc-hold-bar">
+              <span style={{ width: `${Math.min(holdProgress, 1) * 100}%` }} />
+            </div>
+          )}
+
+          {/* Live feedback pill — floats above hold bar */}
+          {(isActive || enrolling) && (
+            <div className="fc-pill-wrap" aria-live="polite">
+              <span className={pillClass}>{error || message}</span>
+            </div>
+          )}
+
+          {/* Non-active state overlay */}
+          {/* Photo taken: brief white flash, like a camera shutter. */}
+          <div key={captures.length} className={captures.length ? 'fc-flash' : ''} aria-hidden="true" />
+
+          {!isActive && (
+            <div className="fc-state-overlay">
+              {(cameraState === 'starting' || enrolling)
+                ? <RefreshCw className="spin" size={40} />
+                : complete
+                  ? <div className="fc-done-ring"><Check size={32} /></div>
+                  : <VideoOff size={36} />}
               <span>
-                {complete ? 'Five photos enrolled'
-                  : enrolling ? 'Adding to the gallery…'
-                  : duplicate ? 'Already registered'
-                  : cameraState === 'starting' ? 'Starting camera…' : 'Camera is off'}
+                {complete   ? 'Face photos saved!'
+                : enrolling ? 'Saving securely…'
+                : duplicate ? 'Already registered'
+                : failed    ? 'Capture failed'
+                : cameraState === 'starting' ? 'Starting camera…'
+                : 'Camera is off'}
               </span>
+              {(duplicate || failed) && error && (
+                <p className="fc-state-sub">{error}</p>
+              )}
             </div>
-          ) : null}
-          {cameraState === 'active' && holdProgress > 0 ? (
-            <div className="camera-hold"><span style={{ width: `${Math.min(holdProgress, 1) * 100}%` }} /></div>
-          ) : null}
+          )}
         </div>
-        <strong className={`camera-message ${error ? 'error' : ''}`}>{error || message}</strong>
-        {!complete ? <small>Follow the pose prompt; the AI checks one face, sharpness and stability before each automatic capture.</small> : null}
-        {cameraState === 'error' ? (
-          <button className="camera-retry" type="button" onClick={startCamera}><Camera size={16} /> Try camera again</button>
-        ) : null}
+
+        {/* ── Three step dots ─────────────────────── */}
+        <div className="fc-dots" role="list" aria-label="Photo progress">
+          {FACE_POSES.map((pose, i) => {
+            const done    = Boolean(captures[i]);
+            const current = i === poseIndex && !complete;
+            return (
+              <div
+                key={pose.key}
+                className={`fc-dot ${done ? 'fc-dot--done' : ''} ${current ? 'fc-dot--current' : ''}`}
+                role="listitem"
+                aria-label={`${pose.short}: ${done ? 'captured' : current ? 'now' : 'pending'}`}
+              >
+                <div className="fc-dot-thumb">
+                  {done
+                    ? <img src={captures[i].image} alt={`${pose.short} captured`} style={{ transform: 'scaleX(-1)' }} />
+                    : done ? null : <span className="fc-dot-num">{i + 1}</span>}
+                  {done && <div className="fc-dot-check"><Check size={10} /></div>}
+                </div>
+                <small className="fc-dot-label">{pose.short}</small>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Hint text under dots */}
+        {!complete && !failed && (
+          <p className="fc-hint">Hold still when the oval glows green — the photo fires automatically.</p>
+        )}
+
+        {/* Camera error retry */}
+        {cameraState === 'error' && (
+          <button className="fc-retry" type="button" onClick={startCamera}>
+            <Camera size={15} /> Allow camera access
+          </button>
+        )}
       </div>
 
-      <div className="capture-poses" aria-label="Required face photos">
-        {FACE_POSES.map((pose, index) => {
-          const capture = captures[index];
-          const current = index === poseIndex && !complete;
-          return (
-            <div className={`capture-pose ${capture ? 'done' : ''} ${current ? 'current' : ''}`} key={pose.key}>
-              {capture ? <img src={capture.image} alt={`${pose.short} captured`} /> : <span>{index + 1}</span>}
-              <small>{pose.short}</small>
-              {capture ? <i><Check size={13} /></i> : null}
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="capture-security-note">
-        <ShieldCheck size={17} />
-        {complete
-          ? 'Face added to the recognition gallery. The registration itself still needs admin approval.'
-          : 'The five photos are added to the recognition gallery as soon as they are captured.'}
-      </div>
-
-      <div className="enrollment-actions">
+      {/* ── Navigation ──────────────────────────── */}
+      <div className="enrollment-actions" style={{ marginTop: '20px' }}>
         <button className="enrollment-button secondary" type="button" onClick={onBack}>
           <ArrowLeft size={18} /> Back
         </button>
@@ -84,9 +194,9 @@ export default function FaceCaptureStep({ initialCaptures, onBack, onComplete, o
         ) : (
           <button
             className="enrollment-button secondary" type="button" onClick={restartCapture}
-            disabled={enrolling || (!captures.length && !duplicate)}
+            disabled={enrolling || (!captures.length && !duplicate && !failed)}
           >
-            <RefreshCw size={18} /> {duplicate ? 'Try another person' : 'Start over'}
+            <RefreshCw size={16} /> {duplicate ? 'Try different person' : 'Start over'}
           </button>
         )}
       </div>

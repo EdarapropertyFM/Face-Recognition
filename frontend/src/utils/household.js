@@ -78,8 +78,8 @@ export function validateMember(member, { requireFaces = true } = {}) {
     errors.email = 'Enter a valid email address.';
   }
 
-  if (requireFaces && (member.faces?.length ?? 0) !== 5) {
-    errors.faces = 'Capture all five face photos for this person.';
+  if (requireFaces && (member.faces?.length ?? 0) < 3) {
+    errors.faces = 'Capture the three face photos (front, left, right) for this person.';
   }
   return errors;
 }

@@ -1,4 +1,4 @@
-.enrollment-page {
+﻿.enrollment-page {
   min-height: 100vh;
   padding: 32px 16px 48px;
   background: linear-gradient(180deg, #e7f1f5 0%, #f2f7f9 100%);
@@ -110,51 +110,205 @@
 }
 .enrollment-footer { margin-top: 18px; color: #68818f; font-size: 11px; text-align: center; }
 
-.camera-stage { padding: 20px; border-radius: 20px; background: #081b28; color: #fff; text-align: center; }
-.camera-instruction { min-height: 24px; margin-bottom: 14px; font-size: 17px; font-weight: 800; }
-.camera-viewport {
-  position: relative; width: min(100%, 390px); aspect-ratio: 3 / 4; margin: 0 auto;
-  overflow: hidden; border-radius: 28px; background: #031019;
+/* ═══════════════════════════════════════════════════════════════
+   FACE CAPTURE STEP  –  Uber-style (fc-* namespace)
+   ─────────────────────────────────────────────────────────────── */
+
+/* Card wrapper overrides */
+.face-capture-step {
+  padding: 24px 24px 20px;
+  overflow: hidden;
 }
-.camera-viewport video { width: 100%; height: 100%; object-fit: cover; }
-.camera-shade { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
-.camera-shade::before { content: ''; position: absolute; inset: 0; background: rgba(3, 16, 25, .33); }
-.camera-shade span {
-  position: relative; width: 66%; height: 77%; border: 3px solid #00a4c4;
-  border-radius: 50%; box-shadow: 0 0 0 999px rgba(3, 16, 25, .18);
+
+/* Header block */
+.fc-header { margin-bottom: 20px; }
+.fc-title  { margin: 4px 0 6px; font-size: clamp(22px, 4vw, 28px); font-weight: 800; color: #0d2233; }
+.fc-subtitle { margin: 0; color: #607b8c; font-size: 14px; line-height: 1.6; }
+
+/* ── Camera wrapper ── */
+.fc-camera-wrap {
+  margin: 0 -24px;          /* bleed to card edge */
+  background: #060f14;
+  position: relative;
 }
-.camera-state {
-  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; gap: 10px; background: rgba(3, 16, 25, .82); color: #d9edf5;
+.fc-camera-wrap--done { background: #051a10; }
+
+/* Instruction banner */
+.fc-instruction {
+  position: relative; z-index: 4;
+  padding: 18px 20px 14px;
+  font-size: 18px; font-weight: 800; color: #fff; text-align: center;
+  background: linear-gradient(to bottom, rgba(6,15,20,.9) 0%, rgba(6,15,20,0) 100%);
+  pointer-events: none;
 }
-.camera-hold {
-  position: absolute; right: 14px; bottom: 15px; left: 14px; height: 7px;
-  overflow: hidden; border-radius: 99px; background: rgba(255, 255, 255, .18);
+
+/* Video element */
+.fc-viewport {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  background: #060f14;
 }
-.camera-hold span { display: block; height: 100%; border-radius: inherit; background: #28d17c; transition: width .2s; }
-.camera-message { display: block; min-height: 22px; margin-top: 15px; color: #75e6a7; }
-.camera-message.error { color: #ff8d8d; }
-.camera-stage > small { display: block; margin-top: 5px; color: #9fc0ce; }
-.camera-retry {
-  display: inline-flex; align-items: center; gap: 7px; margin-top: 13px; padding: 9px 13px;
-  border: 1px solid rgba(255, 255, 255, .25); border-radius: 10px;
-  background: rgba(255, 255, 255, .1); color: #fff; cursor: pointer;
+.fc-viewport video {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);   /* mirror so it feels natural */
 }
-.capture-poses {
-  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-top: 16px;
+
+/* ── Dark overlay with oval cutout ── */
+.fc-shade {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  pointer-events: none; z-index: 2;
+  /* radial-gradient creates the see-through oval window */
+  background: radial-gradient(
+    ellipse 68% 60% at 50% 45%,
+    transparent 100%,
+    rgba(0, 0, 0, 0.72) 100%
+  );
 }
-.capture-pose {
-  position: relative; min-width: 0; overflow: hidden; border: 1.5px solid #d4e2e8;
-  border-radius: 13px; background: #f3f8fa; color: #66808f; text-align: center;
+
+/* Oval border ring */
+.fc-oval {
+  position: absolute;
+  width: 68%; height: 60%;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -45%);
+  border-radius: 50%;
+  border: 2.5px solid rgba(255, 255, 255, 0.55);
+  transition: border-color .3s ease, box-shadow .3s ease;
 }
-.capture-pose > span { display: grid; height: 82px; place-items: center; font-size: 20px; font-weight: 800; }
-.capture-pose img { display: block; width: 100%; height: 82px; object-fit: cover; }
-.capture-pose small { display: block; overflow: hidden; padding: 7px 3px; text-overflow: ellipsis; white-space: nowrap; }
-.capture-pose.current { border-color: #0098b8; box-shadow: 0 0 0 3px rgba(0, 152, 184, .1); }
-.capture-pose.done { border-color: #23a86a; }
-.capture-pose i {
-  position: absolute; top: 5px; right: 5px; display: grid; width: 21px; height: 21px;
-  place-items: center; border-radius: 50%; background: #1ca567; color: #fff;
+.fc-oval--locking {
+  border-color: #28d17c;
+  box-shadow: 0 0 0 3px rgba(40, 209, 124, 0.35), inset 0 0 20px rgba(40, 209, 124, 0.15);
+  animation: fc-oval-pulse .7s ease-in-out infinite alternate;
+}
+.fc-oval--done {
+  border-color: #28d17c;
+  box-shadow: 0 0 0 6px rgba(40, 209, 124, 0.25);
+}
+@keyframes fc-oval-pulse {
+  from { box-shadow: 0 0 0 2px rgba(40,209,124,.3), inset 0 0 10px rgba(40,209,124,.1); }
+  to   { box-shadow: 0 0 0 6px rgba(40,209,124,.5), inset 0 0 30px rgba(40,209,124,.3); }
+}
+
+/* Hold-to-capture progress bar */
+.fc-hold-bar {
+  position: absolute; left: 18%; right: 18%; bottom: 110px;
+  height: 4px; border-radius: 99px;
+  background: rgba(255,255,255,.2); z-index: 5; overflow: hidden;
+}
+.fc-hold-bar span {
+  display: block; height: 100%; border-radius: inherit;
+  background: #28d17c; transition: width .18s linear;
+}
+
+/* Status pill */
+.fc-pill-wrap {
+  position: absolute; bottom: 72px; left: 0; right: 0;
+  display: flex; justify-content: center;
+  pointer-events: none; z-index: 6;
+}
+.fc-pill {
+  display: inline-block; max-width: 88%;
+  padding: 9px 20px; border-radius: 99px;
+  background: rgba(0,0,0,.62); color: #fff;
+  backdrop-filter: blur(12px) saturate(1.2);
+  border: 1px solid rgba(255,255,255,.14);
+  font-size: 14px; font-weight: 600;
+  text-align: center;
+  transition: background .25s ease;
+}
+.fc-pill--ready { background: rgba(22, 168, 94, 0.9); border-color: rgba(40,209,124,.4); }
+.fc-pill--error { background: rgba(210, 40, 40, 0.88); border-color: rgba(255,90,90,.4); }
+
+/* Non-active state overlay */
+.fc-state-overlay {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  background: rgba(6,15,20,.88); color: #fff;
+  font-weight: 600; font-size: 15px; text-align: center; z-index: 10;
+}
+.fc-state-sub {
+  max-width: 230px; margin: 0; font-size: 13px; font-weight: 400;
+  color: rgba(255,255,255,.7); line-height: 1.5;
+}
+.fc-done-ring {
+  display: grid; width: 70px; height: 70px; place-items: center;
+  border-radius: 50%; background: #1ca567; color: #fff;
+  animation: fc-done-pop .3s cubic-bezier(.34,1.56,.64,1) both;
+}
+@keyframes fc-done-pop {
+  from { transform: scale(0); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+/* ── Three-step dot strip ── */
+.fc-dots {
+  display: flex; gap: 12px; justify-content: center; align-items: flex-start;
+  padding: 18px 20px 10px; background: #060f14;
+}
+.fc-dot { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; max-width: 96px; }
+.fc-dot-thumb {
+  position: relative; width: 100%; aspect-ratio: 1;
+  border-radius: 14px; overflow: hidden;
+  border: 2.5px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.07);
+  transition: border-color .25s ease, transform .2s ease;
+  display: grid; place-items: center;
+}
+.fc-dot--current .fc-dot-thumb {
+  border-color: #0098b8;
+  box-shadow: 0 0 0 3px rgba(0,152,184,.3);
+  transform: translateY(-3px);
+}
+.fc-dot--done .fc-dot-thumb {
+  border-color: #28d17c;
+  background: rgba(40,209,124,.1);
+}
+.fc-dot-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.fc-dot-num { font-size: 22px; font-weight: 800; color: rgba(255,255,255,.35); }
+.fc-dot--current .fc-dot-num { color: #0098b8; }
+.fc-dot-check {
+  position: absolute; top: 4px; right: 4px;
+  display: grid; width: 18px; height: 18px; place-items: center;
+  border-radius: 50%; background: #1ca567; color: #fff;
+  animation: fc-badge-pop .25s cubic-bezier(.34,1.56,.64,1) both;
+}
+@keyframes fc-badge-pop {
+  from { transform: scale(0); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+.fc-dot-label {
+  color: rgba(255,255,255,.55); font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.fc-dot--current .fc-dot-label { color: #5cd4f0; }
+.fc-dot--done .fc-dot-label    { color: #5de0a0; }
+
+/* Hint & retry below strip */
+.fc-hint {
+  padding: 8px 20px 14px; margin: 0;
+  color: rgba(255,255,255,.4); font-size: 12px; text-align: center; line-height: 1.55;
+  background: #060f14;
+}
+.fc-retry {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: calc(100% - 40px); margin: 0 20px 16px; padding: 12px;
+  border: 1.5px solid rgba(255,255,255,.2); border-radius: 12px;
+  background: rgba(255,255,255,.07); color: #fff;
+  cursor: pointer; font-size: 14px; font-weight: 600;
+  transition: background .2s ease;
+}
+.fc-retry:hover { background: rgba(255,255,255,.12); }
+
+/* ── Mobile ── */
+@media (max-width: 600px) {
+  .face-capture-step { padding: 16px 16px 16px; border-radius: 0; border: none; box-shadow: none; }
+  .fc-camera-wrap   { margin: 0 -16px; }
+  .fc-instruction   { font-size: 16px; padding: 14px 16px 10px; }
+  .fc-dot-thumb     { border-radius: 10px; }
 }
 .capture-security-note {
   display: flex; align-items: center; gap: 8px; margin-top: 15px; padding: 11px 13px;
@@ -201,7 +355,7 @@
 .review-grid div { min-width: 0; }
 .review-grid dt { margin-bottom: 3px; color: #69818f; font-size: 11px; }
 .review-grid dd { display: flex; align-items: center; gap: 5px; margin: 0; overflow-wrap: anywhere; color: #18394b; font-weight: 700; }
-.review-faces { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.review-faces { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .review-faces img { width: 100%; aspect-ratio: 1; border-radius: 10px; object-fit: cover; transform: scaleX(-1); }
 .review-list { margin: 0; padding: 0; list-style: none; }
 .review-list li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid #e5edf1; }
@@ -237,15 +391,15 @@
 @keyframes enrollment-spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 600px) {
-  .enrollment-page { padding: 18px 10px 32px; }
-  .enrollment-card { padding: 24px 18px; border-radius: 19px; }
+  .enrollment-page { padding: 0 0 48px; background: #f2f7f9; }
+  .enrollment-shell { width: 100%; }
+  .enrollment-brand { margin: 16px 16px 12px; }
+  .enrollment-card { padding: 20px 16px 24px; border-radius: 0; border-left: 0; border-right: 0; box-shadow: none; }
+  .enrollment-footer { padding: 0 16px; }
   .enrollment-grid, .enrollment-actions { grid-template-columns: 1fr; gap: 0; }
-  .enrollment-actions .enrollment-button + .enrollment-button { margin-top: 12px; }
-  .camera-stage { padding: 14px; margin-inline: -8px; border-radius: 16px; }
-  .camera-viewport { width: min(100%, 330px); }
-  .capture-poses { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .enrollment-actions .enrollment-button + .enrollment-button { margin-top: 10px; }
   .review-grid { grid-template-columns: 1fr; }
-  .review-faces { grid-template-columns: repeat(5, minmax(48px, 1fr)); overflow-x: auto; }
+  .review-faces { grid-template-columns: repeat(3, minmax(48px, 1fr)); overflow-x: auto; }
   .review-list li { flex-direction: column; gap: 3px; }
 }
 
@@ -382,4 +536,72 @@
 .lease-page button {
   position: absolute; top: 6px; right: 6px; display: inline-flex; padding: 5px; border: 0; border-radius: 8px;
   background: rgba(255, 255, 255, .92); color: #c93636; cursor: pointer;
+}
+
+/* ── Face capture: polish + mobile ─────────────────────────────── */
+/* Camera never taller than the screen allows (desktop cards are wide). */
+.fc-viewport { aspect-ratio: auto; height: min(64vh, 560px); min-height: 340px; }
+/* The dark surround is the oval's own shadow, so the see-through window
+   always matches the outline exactly. */
+.fc-shade { background: none; overflow: hidden; }
+.fc-oval {
+  width: min(68%, 300px); height: auto; aspect-ratio: 3 / 4;
+  box-shadow: 0 0 0 9999px rgba(3, 10, 14, 0.66);
+}
+.fc-oval--locking { border-color: #2ee59d; box-shadow: 0 0 0 9999px rgba(3, 10, 14, 0.66), 0 0 0 6px rgba(46, 229, 157, .25); }
+.fc-oval--done { border-color: #2ee59d; }
+
+/* Intro screen (tips + Start) */
+.fc-intro { display: flex; flex-direction: column; align-items: stretch; text-align: center; padding-top: 6px; }
+.fc-intro .fc-title, .fc-intro .fc-subtitle { text-align: center; }
+.fc-intro-art {
+  align-self: center; display: grid; place-items: center; width: 132px; height: 132px; margin: 6px 0 18px;
+  border-radius: 50%; background: radial-gradient(circle, #e6f4f8 0%, #f5fafc 70%);
+}
+.fc-intro-oval {
+  width: 62px; height: 82px; border-radius: 50%; border: 3px solid #008cab;
+  animation: fc-breathe 2.2s ease-in-out infinite;
+}
+@keyframes fc-breathe { 50% { transform: scale(1.08); border-color: #2ee59d; } }
+.fc-tips { list-style: none; margin: 18px 0 22px; padding: 0; display: grid; gap: 10px; text-align: start; }
+.fc-tips li {
+  display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+  border: 1px solid #e1ecf1; border-radius: 12px; background: #f8fbfc; color: #29485a; font-size: 14px;
+}
+.fc-tips svg { flex: 0 0 auto; color: #008cab; }
+
+@media (max-width: 600px) {
+  .fc-camera-wrap { margin: 0 -18px; }                 /* card padding is 18px on phones */
+  .fc-viewport { height: min(58vh, 520px); min-height: 300px; }
+  .fc-oval { width: min(72%, 280px); }
+  .fc-instruction { font-size: 16px; padding: 14px 14px 10px; }
+  .fc-dots { gap: 10px; }
+  .face-capture-step .enrollment-actions { position: sticky; bottom: 0; background: #fff; padding: 12px 0 4px; z-index: 5; }
+}
+
+/* Side poses: direction arrow + turn meter */
+.fc-turn-arrow {
+  position: absolute; top: 45%; z-index: 3; color: #fff; opacity: .9;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)); pointer-events: none;
+  transform: translateY(-50%);
+}
+.fc-turn-arrow--left { left: 4%; animation: fc-nudge-left 1s ease-in-out infinite; }
+.fc-turn-arrow--right { right: 4%; animation: fc-nudge-right 1s ease-in-out infinite; }
+.fc-turn-arrow--ok { color: #2ee59d; animation: none; }
+@keyframes fc-nudge-left { 50% { transform: translate(-10px, -50%); } }
+@keyframes fc-nudge-right { 50% { transform: translate(10px, -50%); } }
+.fc-turn-meter {
+  position: absolute; left: 50%; bottom: 74px; z-index: 3; transform: translateX(-50%);
+  width: min(60%, 260px); height: 8px; border-radius: 99px; background: rgba(255,255,255,.22); overflow: hidden;
+  display: flex;
+}
+.fc-turn-meter--left { flex-direction: row-reverse; }   /* fills toward the side to turn */
+.fc-turn-meter span { display: block; height: 100%; border-radius: 99px; background: #ffffff; transition: width .25s ease; }
+.fc-turn-meter span.ok { background: #2ee59d; }
+/* Shutter flash */
+.fc-flash { position: absolute; inset: 0; z-index: 6; background: #fff; pointer-events: none; animation: fc-flash .35s ease-out forwards; }
+@keyframes fc-flash { from { opacity: .75; } to { opacity: 0; } }
+@media (max-width: 600px) {
+  .fc-turn-arrow svg { width: 44px; height: 44px; }
+  .fc-turn-meter { bottom: 64px; }
 }

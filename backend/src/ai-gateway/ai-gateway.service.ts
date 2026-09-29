@@ -85,7 +85,8 @@ export class AiGatewayService {
   }
 
   async provisionPerson(name: string, role: string, images: string[]) {
-    if (images.length < 5) throw new BadGatewayException('AI enrollment requires five face photos');
+    // Front, left and right (config.yaml enrollment.min_images: 3).
+    if (images.length < 3) throw new BadGatewayException('AI enrollment requires at least three face photos');
     let personId: string | null = null;
     try {
       const person = await this.request('/persons', {

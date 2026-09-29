@@ -81,7 +81,7 @@ export default function EnrollmentsPage() {
         <div style={{ fontSize: 13, lineHeight: 1.5 }}>
           {lang
             ? <>الدورة: يقدّم المالك الطلب عبر STMC → يصل هنا كـ <b>قيد المراجعة</b> → يراجع الأمن الهوية والصور الخمس → <b>اعتماد</b> يفعّل وجه المالك في قاعدة الوجوه.</>
-            : <>Cycle: owner submits through STMC secure enrollment → arrives here as <b>Pending</b> → security validates the identity and five face captures → <b>Approve</b> activates the owner in the Face Database, or <b>Reject</b>.</>}
+            : <>Cycle: owner submits through STMC secure enrollment → arrives here as <b>Pending</b> → security validates the identity and the three face captures → <b>Approve</b> activates the owner in the Face Database, or <b>Reject</b>.</>}
         </div>
       </div>
 
@@ -164,9 +164,9 @@ export default function EnrollmentsPage() {
               </div>
 
               <div className="fg">
-                <label>{lang ? 'صور وجه المالك الخمس' : 'Owner face — five validated captures'}</label>
+                <label>{lang ? 'صور وجه المالك' : 'Owner face — validated captures (front, left, right)'}</label>
                 <div className="uploadrow" style={{ background: 'var(--stat-bg)', padding: '12px', borderRadius: 12, border: '1px solid var(--glass-border)', display: 'inline-flex' }}>
-                  {['front','left','right','stepBack','betterLighting'].map(k => (
+                  {['front','left','right','stepBack','betterLighting'].filter(k => rec.owner?.faces?.[k] || ['front','left','right'].includes(k)).map(k => (
                     <div key={k} className="face-th" style={{ width: 56, height: 72, borderRadius: 10, boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
                       {rec.owner?.faces?.[k] ? <img src={rec.owner.faces[k]} alt={k} /> : '🙂'}
                     </div>

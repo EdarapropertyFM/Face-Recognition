@@ -1,9 +1,9 @@
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 export class CaptureFacesDto {
-  /** The five pose captures, in order: front, left, right, step back, better lighting. */
+  /** The three pose captures, in order: front, left, right. */
   @IsArray()
-  @ArrayMinSize(5)
+  @ArrayMinSize(3)
   @ArrayMaxSize(5)
   @Matches(/^data:image\/(jpeg|jpg|png);base64,/, {
     each: true, message: 'Each face photo must be a camera capture',

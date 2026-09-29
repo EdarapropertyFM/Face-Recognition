@@ -3,6 +3,7 @@ import { FacesService } from './faces.service';
 import { CreateFaceDto } from './dto/create-face.dto';
 import { UpdateFaceDto } from './dto/update-face.dto';
 import { ApiTags, ApiQuery } from '@nestjs/swagger';
+import { Roles } from '../auth/auth.decorators';
 
 @ApiTags('faces')
 @Controller('faces')
@@ -30,7 +31,15 @@ export class FacesController {
     return this.facesService.update(id, updateFaceDto);
   }
 
+  /** What removing this person would take with them, before committing. */
+  @Get(':id/removal-preview')
+  @Roles('Admin')
+  removalPreview(@Param('id') id: string) {
+    return this.facesService.removalPreview(id);
+  }
+
   @Delete(':id')
+  @Roles('Admin')
   remove(@Param('id') id: string) {
     return this.facesService.remove(id);
   }

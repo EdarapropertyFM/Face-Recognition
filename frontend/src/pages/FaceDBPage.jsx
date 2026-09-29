@@ -1,13 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Search, UserPlus, Download, Users, ShieldAlert, UserX, User, Car } from 'lucide-react';
+import { Search, UserPlus, Download, Users, ShieldAlert, UserX, User, Car, Trash2, X } from 'lucide-react';
 import { apiFetch } from '../api';
 import { displayName, zoneLabel } from '../utils/display';
+import { useAuth } from '../context/useAuth';
 
 export default function FaceDBPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const { canEdit } = useAuth();
   const lang = i18n.language === 'ar' ? 1 : 0;
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -15,13 +17,18 @@ export default function FaceDBPage() {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState(null);   // full record from GET /faces/:id
   const [loadingId, setLoadingId] = useState(null);
+  // Removing somebody is irreversible and reaches further than one row, so
+  // the confirmation says exactly who goes before anything happens.
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
-  useEffect(() => {
-    apiFetch('/faces')
-      .then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
-      .then(data => { setFaces(data); setError(''); })
-      .catch(err => setError(err.message));
-  }, []);
+  const load = useCallback(() => apiFetch('/faces')
+    .then(res => (res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`))))
+    .then(data => { setFaces(data); setError(''); })
+    .catch(err => setError(err.message)), []);
+
+  useEffect(() => { load(); }, [load]);
 
   const openFace = async (id) => {
     setLoadingId(id);
@@ -46,6 +53,34 @@ export default function FaceDBPage() {
     const q = (f.id + nameStr + (f.idno || '') + roleStr + (f.bldg || '') + (f.unit || '')).toLowerCase();
     return matches && q.includes(search.toLowerCase());
   });
+
+  const askDelete = async (face) => {
+    setDeleteError('');
+    setPendingDelete({ face, preview: null, loading: true });
+    try {
+      const response = await apiFetch(`/faces/${encodeURIComponent(face.id)}/removal-preview`);
+      const preview = response.ok ? await response.json() : null;
+      setPendingDelete({ face, preview, loading: false });
+    } catch {
+      setPendingDelete({ face, preview: null, loading: false });
+    }
+  };
+
+  const confirmDelete = async () => {
+    const face = pendingDelete?.face;
+    if (!face) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      const response = await apiFetch(`/faces/${encodeURIComponent(face.id)}`, { method: 'DELETE' });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.message || 'Delete failed.');
+      setPendingDelete(null);
+      await load();
+    } catch (error) {
+      setDeleteError(error.message);
+    } finally { setDeleting(false); }
+  };
 
   return (
     <>
@@ -111,7 +146,13 @@ export default function FaceDBPage() {
                 <td>
                   <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
                     <button className="btn ghost sm" onClick={() => navigate('/track')}>Track</button>
-                    {f.type === 'unknown' && <button className="btn sm">Identify</button>}
+                    {canEdit('facedb') ? (
+                      <button className="btn ghost sm" title={lang ? 'حذف' : 'Delete'}
+                        aria-label={lang ? 'حذف' : 'Delete'}
+                        onClick={() => askDelete(f)}>
+                        <Trash2 size={13} />
+                      </button>
+                    ) : null}
                   </div>
                 </td>
               </tr>
@@ -127,6 +168,58 @@ export default function FaceDBPage() {
         </table>
       </div>
       {selected && <FaceDetails face={selected} lang={lang} t={t} onClose={() => setSelected(null)} />}
+      {pendingDelete ? (
+        <div className="sv-backdrop" onClick={() => !deleting && setPendingDelete(null)} role="presentation">
+          <div className="sv" style={{ width: 'min(520px, 100%)' }} onClick={(e) => e.stopPropagation()}
+            role="dialog" aria-modal="true">
+            <header className="sv-head">
+              <div><b>{lang ? 'حذف شخص' : 'Remove person'}</b></div>
+              <button className="sv-close" onClick={() => setPendingDelete(null)} disabled={deleting}>
+                <X size={18} />
+              </button>
+            </header>
+            <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                {lang ? 'سيتم حذف' : 'This will permanently remove'}{' '}
+                <b>{displayName(pendingDelete.face, lang, pendingDelete.face.id)}</b>{' '}
+                {lang ? 'نهائياً من قاعدة البيانات ومن معرّف الكاميرات.' : 'from the database and from the camera recognition gallery.'}
+              </div>
+
+              {pendingDelete.loading ? (
+                <div className="sub">{lang ? 'جاري التحقق…' : 'Checking what else is affected…'}</div>
+              ) : pendingDelete.preview?.household?.length ? (
+                <div className="note" style={{ borderColor: 'var(--amber, #e0a458)', color: 'var(--txt)' }}>
+                  <b>{lang
+                    ? `سيتم حذف ${pendingDelete.preview.household.length} من أفراد الأسرة أيضاً:`
+                    : `${pendingDelete.preview.household.length} household member(s) will also be removed:`}</b>
+                  <ul style={{ margin: '6px 0 0', paddingInlineStart: 18 }}>
+                    {pendingDelete.preview.household.map((m, i) => (
+                      <li key={i} style={{ fontSize: 12 }}>{m.name}{m.relation ? ` — ${m.relation}` : ''}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : pendingDelete.preview?.relationship === 'member' ? (
+                <div className="sub" style={{ fontSize: 12 }}>
+                  {lang
+                    ? 'هذا الشخص فرد من أسرة؛ سيُحذف وحده ويبقى صاحب التسجيل.'
+                    : 'This person is a household member: only they are removed, the resident who registered them stays.'}
+                </div>
+              ) : null}
+
+              {deleteError ? <div className="err">{deleteError}</div> : null}
+
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button className="btn ghost" disabled={deleting} onClick={() => setPendingDelete(null)}>
+                  {lang ? 'إلغاء' : 'Cancel'}
+                </button>
+                <button className="btn red" disabled={deleting || pendingDelete.loading} onClick={confirmDelete}>
+                  <Trash2 size={14} /> {deleting ? (lang ? 'جاري الحذف…' : 'Removing…') : (lang ? 'حذف نهائي' : 'Remove permanently')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

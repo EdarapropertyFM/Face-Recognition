@@ -173,8 +173,9 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
    * not leave biometric data behind.
    */
   async captureFaces(images: string[], name?: string) {
-    if (!Array.isArray(images) || images.length !== 5) {
-      throw new ConflictException('All five face photos are required');
+    // Three poses: front, left, right. Up to five still accepted from older drafts.
+    if (!Array.isArray(images) || images.length < 3 || images.length > 5) {
+      throw new ConflictException('All three face photos (front, left, right) are required');
     }
     if (!images.every((image) => typeof image === 'string' && image.startsWith('data:image/'))) {
       throw new ConflictException('Face photos must be camera captures');
@@ -536,10 +537,11 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
 
   private async faceImages(enrollment: Enrollment) {
     const faces = enrollment.owner?.faces as Record<string, unknown> | undefined;
+    // front/left/right now; stepBack/betterLighting on registrations made before.
     const keys = ['front', 'left', 'right', 'stepBack', 'betterLighting'];
     const images = (await Promise.all(keys.map((key) => this.storage.resolveImage(faces?.[key]))))
       .filter((value): value is string => Boolean(value));
-    if (images.length !== 5) throw new BadGatewayException('Validation requires all five captured face photos');
+    if (images.length < 3) throw new BadGatewayException('Validation requires the three captured face photos');
     return images;
   }
 

@@ -48,8 +48,8 @@ export default function EnrollmentPage() {
       setSubmitError('Your rental agreement is required. Go back to step 1 and attach it.');
       return;
     }
-    if ((!identityDocument && !draft.idDocImage) || faceCaptures.length !== 5) {
-      setSubmitError('Your ID card and all five face photos are required. Go back and capture them again.');
+    if ((!identityDocument && !draft.idDocImage) || faceCaptures.length !== 3) {
+      setSubmitError('Your ID card and all three face photos are required. Go back and capture them again.');
       return;
     }
     if (!aiPersonId) {

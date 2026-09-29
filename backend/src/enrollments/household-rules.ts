@@ -110,7 +110,7 @@ export function householdMemberProblems(
   }
 
   const faces = Object.values(member.faces ?? {});
-  if (faces.length !== 5) problems.push(`${where}: all five face photos are required`);
+  if (faces.length < 3) problems.push(`${where}: all three face photos (front, left, right) are required`);
   else if (!faces.every((image) => typeof image === 'string' && image.startsWith('data:image/'))) {
     problems.push(`${where}: face photos must be camera captures`);
   }

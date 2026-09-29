@@ -1,31 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../api';
+import { playCaptureDone, playCapturePop, unlockCaptureSound } from '../utils/captureSound';
 
 export const FACE_POSES = [
-  { key: 'front', title: 'Look straight at the camera and keep your eyes open', short: 'Front' },
-  { key: 'left', title: 'Slowly turn your head to one side', short: 'Side 1' },
-  { key: 'right', title: 'Now slowly turn your head to the other side', short: 'Side 2' },
-  { key: 'stepBack', title: 'Look straight and move back a little', short: 'Step back' },
-  { key: 'betterLighting', title: 'Face the light, look straight, eyes open', short: 'Lighting' },
+  { key: 'front', title: 'Look straight at the camera', short: 'Front', emoji: '😊' },
+  { key: 'left',  title: 'Slowly turn your head to the left', short: 'Left', emoji: '↩️' },
+  { key: 'right', title: 'Now turn your head to the right', short: 'Right', emoji: '↪️' },
 ];
 
 // Biometric capture: each pose is verified from the AI's own measurements
-// (yaw, pitch, face width, sharpness) and must be held steady before the
-// photo is taken, so the five templates really differ in angle and scale.
-const CHECK_INTERVAL_MS = 400;
-const REQUIRED_STABLE_CHECKS = 3;        // ~1.2 s holding the correct pose
-const MIN_CAPTURE_GAP_MS = 1500;         // time to move into the next pose
+// (yaw, pitch, sharpness) and must be held steady before the photo is taken,
+// so the three templates cover the core angles the recognizer needs.
+const CHECK_INTERVAL_MS = 350;
+const REQUIRED_STABLE_CHECKS = 2;        // ~0.7 s holding the correct pose — snappy
+const MIN_CAPTURE_GAP_MS = 1200;         // time to move into the next pose
 const MAX_YAW_JITTER_DEG = 10;           // head must be still, not mid-turn
 const MIN_BLUR_SCORE = 62;               // just above the AI minimum (60); webcams reach 60-75
 
-const FRONTAL_YAW = 14;
+const FRONTAL_YAW = 10;                  // front photo: really straight on
 const FRONTAL_PITCH = 20;
-const SIDE_YAW_MIN = 12;                 // a real turn...
-const SIDE_YAW_MAX = 33;                 // ...but both eyes stay visible (AI rejects > 35)
-const STEP_BACK_RATIO = 0.9;             // face at most 90% of its front width
+// Side photos must be a REAL turn: at least this far from the person's own
+// front photo (the landmark yaw estimate reads a ~35-40 deg head turn as ~20).
+const SIDE_TURN_MIN = 18;
+const SIDE_TURN_RELAXED = 14;            // after POSE_FALLBACK_MS, never lower
+const SIDE_YAW_MAX = 34;                 // both eyes stay visible (AI rejects > 35)
 // Stuck on one pose this long: accept any good-quality frame so nobody is
 // locked out of registering by a hard pose (glasses, a fixed camera...).
-const POSE_FALLBACK_MS = 15000;
+const POSE_FALLBACK_MS = 12000;
 
 // The AI rejects faces narrower than detection.min_face_size_px (80px), and a
 // face typically spans about a fifth of a centred head-and-shoulders frame. At
@@ -71,48 +72,49 @@ function qualityHint(quality) {
  * already taken, so later poses are judged against them (the second side must
  * be opposite the first; step back must be smaller than the front photo).
  */
+/** How far this frame is turned from the front photo (0..1 of the required turn). */
+export function turnProgress(pose, quality, captures, relaxed = false) {
+  if (!quality || pose?.key === 'front') return 0;
+  const frontYaw = captures.find((c) => c.key === 'front')?.quality?.yaw_deg ?? 0;
+  const firstSide = captures.find((c) => c.key === 'left')?.quality?.yaw_deg;
+  const turn = quality.yaw_deg - frontYaw;
+  // The second side only counts when turned the other way from the first.
+  if (pose.key === 'right' && firstSide !== undefined && Math.sign(turn) === Math.sign(firstSide - frontYaw)) return 0;
+  return Math.min(1, Math.abs(turn) / (relaxed ? SIDE_TURN_RELAXED : SIDE_TURN_MIN));
+}
+
 function poseResult(pose, quality, captures, brightness, relaxed = false) {
   if (!quality?.passed) return { accepted: false, hint: qualityHint(quality) };
-  if (relaxed) return { accepted: true, hint: 'Good, hold still' };
-  if (quality.blur_score < MIN_BLUR_SCORE) return { accepted: false, hint: 'Hold still, the photo is not sharp yet' };
-  if (brightness < 55) return { accepted: false, hint: 'Your face is too dark, face a light' };
-  if (brightness > 230) return { accepted: false, hint: 'Too much light on your face, move away from direct light' };
+  // Being stuck relaxes sharpness/light and the turn a little, but a side
+  // photo is never accepted without a real head turn.
+  if (!relaxed && quality.blur_score < MIN_BLUR_SCORE) return { accepted: false, hint: 'Hold still, the photo is not sharp yet' };
+  if (!relaxed && brightness < 55) return { accepted: false, hint: 'Your face is too dark, face a light' };
+  if (!relaxed && brightness > 230) return { accepted: false, hint: 'Too much light on your face, move away from direct light' };
 
   const yaw = quality.yaw_deg;
   const pitch = quality.pitch_deg;
   const frontal = Math.abs(yaw) <= FRONTAL_YAW && Math.abs(pitch) <= FRONTAL_PITCH;
-  const front = captures.find((c) => c.key === 'front')?.quality;
-  const side1 = captures.find((c) => c.key === 'left')?.quality;
-
   switch (pose.key) {
     case 'front':
       if (Math.abs(pitch) > FRONTAL_PITCH) return { accepted: false, hint: 'Keep your chin level' };
       if (Math.abs(yaw) > FRONTAL_YAW) return { accepted: false, hint: 'Look straight at the camera' };
-      return { accepted: true, hint: 'Good, hold still with your eyes open' };
+      return { accepted: true, hint: 'Perfect — hold still' };
     case 'left':
-      if (Math.abs(yaw) < SIDE_YAW_MIN) return { accepted: false, hint: 'Turn your head further to one side' };
-      if (Math.abs(yaw) > SIDE_YAW_MAX) return { accepted: false, hint: 'A little less, keep both eyes visible' };
-      return { accepted: true, hint: 'Good angle, hold it' };
     case 'right': {
-      const opposite = side1 ? Math.sign(yaw) !== Math.sign(side1.yaw_deg) : true;
-      if (!opposite || Math.abs(yaw) < SIDE_YAW_MIN) return { accepted: false, hint: 'Turn your head to the OTHER side' };
-      if (Math.abs(yaw) > SIDE_YAW_MAX) return { accepted: false, hint: 'A little less, keep both eyes visible' };
-      return { accepted: true, hint: 'Good angle, hold it' };
+      const side = pose.key === 'left' ? 'left' : 'right';
+      if (Math.abs(yaw) > SIDE_YAW_MAX) return { accepted: false, hint: 'A bit less — keep both eyes visible' };
+      const progress = turnProgress(pose, quality, captures, relaxed);
+      if (progress === 0 && pose.key === 'right') return { accepted: false, hint: 'Now turn to the OTHER side' };
+      if (progress < 1) return { accepted: false, hint: progress < 0.4 ? `Turn your head to the ${side}` : `Keep turning ${side}…` };
+      if (Math.abs(pitch) > FRONTAL_PITCH + 5) return { accepted: false, hint: 'Keep your chin level' };
+      return { accepted: true, hint: 'Great — hold it there' };
     }
-    case 'stepBack':
-      if (!frontal) return { accepted: false, hint: 'Look straight at the camera' };
-      if (front && quality.face_width_px > front.face_width_px * STEP_BACK_RATIO) return { accepted: false, hint: 'Move back a little more' };
-      return { accepted: true, hint: 'Good distance, hold still' };
-    case 'betterLighting':
-      if (!frontal) return { accepted: false, hint: 'Look straight at the camera' };
-      if (brightness < 80) return { accepted: false, hint: 'Face a window or a light' };
-      return { accepted: true, hint: 'Good light, hold still with your eyes open' };
     default:
       return { accepted: frontal, hint: frontal ? 'Hold still' : 'Look straight at the camera' };
   }
 }
 
-export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPersonId }) {
+export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPersonId, autoStart = true }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const intervalRef = useRef(null);
@@ -127,15 +129,17 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
   const startVersionRef = useRef(0);
   const onCapturesChangeRef = useRef(onCapturesChange);
   const onAiPersonIdRef = useRef(onAiPersonId);
-  // The AI person created when the five photos were captured.
+  // The AI person created when the three photos were captured.
   const aiPersonIdRef = useRef(null);
 
   const [cameraState, setCameraState] = useState(initialCaptures.length >= FACE_POSES.length ? 'complete' : 'idle');
   const [captures, setCaptures] = useState(initialCaptures);
   const [poseIndex, setPoseIndex] = useState(initialCaptures.length);
-  const [message, setMessage] = useState(initialCaptures.length >= FACE_POSES.length ? 'All five photos are ready' : 'Starting camera…');
+  const [message, setMessage] = useState(initialCaptures.length >= FACE_POSES.length ? 'All three photos are ready' : 'Starting camera…');
   const [error, setError] = useState('');
   const [holdProgress, setHoldProgress] = useState(0);
+  // 0..1: how far the head is turned toward the required side (side poses).
+  const [turn, setTurn] = useState(0);
 
   useEffect(() => {
     onAiPersonIdRef.current = onAiPersonId;
@@ -155,7 +159,7 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
     checkingRef.current = false;
   }, []);
 
-  // The five photos go into the AI gallery as soon as they are captured, so
+  // The three photos go into the AI gallery as soon as they are captured, so
   // the person is recognizable straight away. The id comes back for the draft
   // to carry; until an enrollment claims it the backend purges it.
   const enrollCaptures = useCallback(async (allCaptures) => {
@@ -176,7 +180,7 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
       aiPersonIdRef.current = result.aiPersonId;
       onAiPersonIdRef.current?.(result.aiPersonId);
       setCameraState('complete');
-      setMessage('All five photos are ready and enrolled');
+      setMessage('All three photos captured and enrolled');
       setError('');
     } catch (enrollError) {
       if (!mountedRef.current) return;
@@ -231,6 +235,7 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
       const currentPose = FACE_POSES[poseIndexRef.current];
       const relaxed = Date.now() - poseStartedAtRef.current > POSE_FALLBACK_MS;
       const evaluation = poseResult(currentPose, result.quality, capturesRef.current, brightness, relaxed);
+      setTurn(turnProgress(currentPose, result.quality, capturesRef.current, relaxed));
       // A head still turning between checks gives a smeared, in-between angle.
       const yaw = result.quality?.yaw_deg;
       const moving = lastYawRef.current !== null && Math.abs(yaw - lastYawRef.current) > MAX_YAW_JITTER_DEG;
@@ -263,9 +268,16 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
       lastCaptureAtRef.current = now;
       setCaptures(nextCaptures);
       onCapturesChangeRef.current?.(nextCaptures);
+      
+      // Pop + vibration per photo, a chime on the last one, so the person
+      // knows when to switch pose without reading the screen.
+      if (poseIndexRef.current + 1 >= FACE_POSES.length) playCaptureDone();
+      else playCapturePop();
+
       stableChecksRef.current = 0;
       setHoldProgress(0);
 
+      setTurn(0);
       const nextIndex = poseIndexRef.current + 1;
       poseIndexRef.current = nextIndex;
       poseStartedAtRef.current = Date.now() + MIN_CAPTURE_GAP_MS;
@@ -287,6 +299,8 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
   }, [enrollCaptures, stopCamera]);
 
   const startCamera = useCallback(async () => {
+    // Usually called from a tap (Start / Try again): unlock sound inside it.
+    unlockCaptureSound();
     stopCamera();
     const startVersion = startVersionRef.current;
     setError('');
@@ -349,7 +363,7 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
 
   useEffect(() => {
     mountedRef.current = true;
-    const startTimer = capturesRef.current.length < FACE_POSES.length
+    const startTimer = autoStart && capturesRef.current.length < FACE_POSES.length
       ? window.setTimeout(startCamera, 0)
       : null;
     return () => {
@@ -357,10 +371,10 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
       mountedRef.current = false;
       stopCamera();
     };
-  }, [startCamera, stopCamera]);
+  }, [startCamera, stopCamera, autoStart]);
 
   return {
-    videoRef, cameraState, captures, poseIndex, message, error,
+    videoRef, cameraState, captures, poseIndex, message, error, turn,
     holdProgress, currentPose: FACE_POSES[Math.min(poseIndex, FACE_POSES.length - 1)],
     startCamera, restartCapture, stopCamera,
   };

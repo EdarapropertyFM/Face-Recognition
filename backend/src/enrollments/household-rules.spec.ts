@@ -95,9 +95,9 @@ describe('householdMemberProblems', () => {
       .toContainEqual(expect.stringMatching(/valid Egyptian mobile/));
   });
 
-  it('requires all five face photos, as camera captures', () => {
+  it('requires all three face photos, as camera captures', () => {
     expect(householdMemberProblems({ ...adult(), faces: { front: 'data:image/jpeg;base64,x' } }, 0, NOW))
-      .toContainEqual(expect.stringMatching(/five face photos/));
+      .toContainEqual(expect.stringMatching(/three face photos/));
     expect(householdMemberProblems({
       ...adult(), faces: { ...faces(), front: 'https://example.com/photo.jpg' },
     }, 0, NOW)).toContainEqual(expect.stringMatching(/camera captures/));

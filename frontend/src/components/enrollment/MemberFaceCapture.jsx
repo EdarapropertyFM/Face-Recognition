@@ -27,7 +27,7 @@ export default function MemberFaceCapture({ memberName, initialCaptures, onCaptu
 
       <div className="member-capture-stage">
         <div className="member-capture-instruction" aria-live="polite">
-          {complete ? 'All five photos are ready' : duplicate ? 'Already registered' : currentPose.title}
+          {complete ? 'All three photos are ready' : duplicate ? 'Already registered' : `${currentPose.emoji ?? ''} ${currentPose.title}`}
         </div>
         <div className="member-capture-viewport">
           <video ref={videoRef} autoPlay muted playsInline aria-label="Live camera preview" />

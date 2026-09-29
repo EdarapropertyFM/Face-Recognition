@@ -56,7 +56,7 @@ export default function HouseholdStep({ members, onChange, onBack, onContinue })
         const memberErrors = errors[index] ?? {};
         const showNationalId = requiresNationalId(member.age);
         const showMobile = collectsMobile(member.relation);
-        const facesDone = (member.faces?.length ?? 0) === 5;
+        const facesDone = (member.faces?.length ?? 0) >= 3;
 
         return (
           <div className="enrollment-repeatable" key={member.id}>
@@ -128,7 +128,7 @@ export default function HouseholdStep({ members, onChange, onBack, onContinue })
               <div className={`member-face-row ${memberErrors.faces ? 'has-error' : ''}`}>
                 <div>
                   <strong>{facesDone ? 'Face photos captured' : 'Face photos'}</strong>
-                  <small>{facesDone ? 'Added to the recognition gallery.' : 'Five photos, taken on this phone.'}</small>
+                  <small>{facesDone ? 'Added to the recognition gallery.' : 'Three photos, taken on this phone.'}</small>
                 </div>
                 <button type="button" className="enrollment-button secondary" onClick={() => setCapturing(member.id)}>
                   {facesDone ? <><Camera size={15} /> Retake</> : <><Camera size={15} /> Capture faces</>}

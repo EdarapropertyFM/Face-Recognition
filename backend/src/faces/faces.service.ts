@@ -1,14 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { Face } from './entities/face.entity';
 import { Enrollment } from '../enrollments/entities/enrollment.entity';
 import { Detection } from '../detections/entities/detection.entity';
 import { CreateFaceDto } from './dto/create-face.dto';
 import { FROM_ENROLLMENT_SITE, inGallery } from './visibility';
+import { familyWithout, planRemoval } from './removal';
 import { UpdateFaceDto } from './dto/update-face.dto';
 import { SecureStorageService } from '../secure-storage/secure-storage.service';
 import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
+import { RealtimeService } from '../realtime/realtime.service';
 
 @Injectable()
 export class FacesService {
@@ -18,6 +20,8 @@ export class FacesService {
     @InjectRepository(Detection) private detRepo: Repository<Detection>,
     private readonly storage: SecureStorageService,
     private readonly aiGateway: AiGatewayService,
+    private readonly realtime: RealtimeService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(createFaceDto: CreateFaceDto) {
@@ -190,9 +194,105 @@ export class FacesService {
     return await this.faceRepo.save(face);
   }
 
+  /**
+   * Remove a person from the system, everywhere.
+   *
+   * Deleting the row alone left them in the AI gallery, so every camera
+   * carried on recognising somebody the software said had been deleted.
+   *
+   * The household follows the person who registered: they were only ever
+   * here because that resident vouched for them. It does not work in
+   * reverse -- deleting a son must not delete his father.
+   */
   async remove(id: string) {
     const face = await this.findEntity(id);
-    return await this.faceRepo.remove(face);
+    const enrollment = await this.enrollmentFor(face);
+    const plan = planRemoval(face, enrollment);
+
+    // The gallery first: if this fails, the records stay and the operator
+    // can retry. Deleting the rows first would leave a person recognisable
+    // with nothing left to point at them.
+    for (const personId of plan.aiPersonIds) {
+      await this.aiGateway.deletePerson(personId).catch(() => undefined);
+    }
+
+    const removedFaces = await this.dataSource.transaction(async (manager) => {
+      const faces = manager.getRepository(Face);
+      const enrollments = manager.getRepository(Enrollment);
+      let count = 0;
+
+      if (plan.aiPersonIds.length) {
+        const byPerson = await faces.delete({ aiPersonId: In(plan.aiPersonIds) });
+        count += byPerson.affected ?? 0;
+      }
+      // A face with no gallery person is not covered by the query above.
+      const own = await faces.delete({ id: face.id });
+      count += own.affected ?? 0;
+
+      if (enrollment && plan.removesEnrollment) {
+        await enrollments.delete({ ref: enrollment.ref });
+      } else if (enrollment) {
+        // Keep the registration, minus the person removed, so the household
+        // list does not point at somebody who no longer exists.
+        enrollment.family = familyWithout(enrollment, face.aiPersonId ?? null) as never;
+        await enrollments.save(enrollment);
+      }
+      return count;
+    });
+
+    if (enrollment && plan.removesEnrollment) {
+      await this.storage.deleteEnrollment(enrollment.ref).catch(() => undefined);
+    }
+
+    this.realtime.emit('face.deleted', {
+      id: face.id,
+      relationship: plan.relationship,
+      removedFromAi: plan.aiPersonIds.length,
+    });
+
+    return {
+      id: face.id,
+      relationship: plan.relationship,
+      removedFaces,
+      removedFromAi: plan.aiPersonIds.length,
+      removedEnrollment: plan.removesEnrollment ? enrollment?.ref ?? null : null,
+    };
+  }
+
+  /** The registration this face belongs to, as applicant or as household. */
+  private async enrollmentFor(face: Face): Promise<Enrollment | null> {
+    const asApplicant = await this.enrollRepo.findOne({ where: { faceId: face.id } });
+    if (asApplicant) return asApplicant;
+    if (!face.aiPersonId) return null;
+    const byPerson = await this.enrollRepo.findOne({ where: { aiPersonId: face.aiPersonId } });
+    if (byPerson) return byPerson;
+    return this.enrollRepo.createQueryBuilder('e')
+      .where('e.family @> :member::jsonb', { member: JSON.stringify([{ aiPersonId: face.aiPersonId }]) })
+      .getOne();
+  }
+
+  /**
+   * What removing this person would take with them, without doing it.
+   *
+   * A confirmation that says "and 3 household members" is the difference
+   * between an informed decision and a surprise.
+   */
+  async removalPreview(id: string) {
+    const face = await this.findEntity(id);
+    const enrollment = await this.enrollmentFor(face);
+    const plan = planRemoval(face, enrollment);
+    const household = plan.removesEnrollment && enrollment
+      ? ((enrollment.family ?? []) as Array<{ name?: string; relation?: string }>)
+        .map((member) => ({ name: member?.name ?? 'Unnamed', relation: member?.relation ?? null }))
+      : [];
+    return {
+      id: face.id,
+      name: face.name,
+      relationship: plan.relationship,
+      removesEnrollment: plan.removesEnrollment,
+      enrollmentRef: plan.removesEnrollment ? enrollment?.ref ?? null : null,
+      household,
+    };
   }
 
   private async hydrate(face: Face) {

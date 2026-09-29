@@ -55,7 +55,8 @@ export function sanitizeStoredCaptures(value) {
     .filter((capture) => capture && typeof capture === 'object'
       && typeof capture.image === 'string' && capture.image.startsWith('data:image/')
       && typeof capture.key === 'string')
-    .slice(0, 5);
+    // Three poses (front, left, right); older five-photo drafts keep the first three.
+    .slice(0, 3);
 }
 
 /**

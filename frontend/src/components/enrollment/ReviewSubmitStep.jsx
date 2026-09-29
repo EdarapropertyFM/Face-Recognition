@@ -49,7 +49,7 @@ export default function ReviewSubmitStep({ draft, faceCaptures, members, vehicle
         </dl>
       </ReviewSection>
 
-      <ReviewSection icon={ShieldCheck} title={`Face photos (${faceCaptures.length}/5)`} onEdit={() => onEdit(2)}>
+      <ReviewSection icon={ShieldCheck} title={`Face photos (${faceCaptures.length}/3)`} onEdit={() => onEdit(2)}>
         <div className="review-faces">{faceCaptures.map((capture) => <img src={capture.image} alt={capture.label} title={capture.label} key={capture.key} />)}</div>
       </ReviewSection>
 
