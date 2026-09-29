@@ -39,11 +39,13 @@ export default function ReviewSubmitStep({ draft, faceCaptures, members, vehicle
               <div key={residence.id}>{residence.project} · {residence.building} · {residence.unit}</div>
             ))}
           </dd></div>
+          <div><dt>Registering as</dt><dd>{draft.residentType === 'tenant' ? 'Tenant' : 'Owner'}</dd></div>
           <div><dt>Full name</dt><dd>{draft.name}</dd></div>
           <div><dt>National ID</dt><dd>{draft.nid}</dd></div>
           <div><dt>Mobile</dt><dd>{draft.mobile}</dd></div>
           <div><dt>Email</dt><dd>{draft.email || '—'}</dd></div>
-          <div><dt>ID card</dt><dd><FileCheck2 size={15} /> {draft.idDocName}</dd></div>
+          <div><dt>ID card</dt><dd><FileCheck2 size={15} /> {draft.idDocName || 'Attached'}</dd></div>
+          {draft.residentType === 'tenant' && <div><dt>Rental agreement</dt><dd><FileCheck2 size={15} /> {draft.leasePages?.length || 0} {draft.leasePages?.length === 1 ? 'page' : 'pages'}</dd></div>}
         </dl>
       </ReviewSection>
 

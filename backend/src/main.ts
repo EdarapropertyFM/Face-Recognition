@@ -13,8 +13,10 @@ validateEnvironment();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
-  app.use(json({ limit: '3mb' }));
-  app.use(urlencoded({ extended: true, limit: '3mb' }));
+  // A registration carries an ID card, five face photos, household photos and
+  // up to 8 rental agreement pages, all as compressed images.
+  app.use(json({ limit: '12mb' }));
+  app.use(urlencoded({ extended: true, limit: '12mb' }));
   app.setGlobalPrefix('api');
 
   // Enable CORS for frontend

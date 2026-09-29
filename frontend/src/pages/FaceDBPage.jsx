@@ -188,6 +188,19 @@ function FaceDetails({ face, lang, t, onClose }) {
             ) : <div className="hint">{lang ? 'لا توجد صور' : 'No photos stored'}</div>}
           </div>
 
+          {isOwner && e?.residentType === 'tenant' && owner?.rentalAgreement?.length > 0 && (
+            <div className="fg">
+              <label>{lang ? 'عقد الإيجار' : 'Rental agreement'}</label>
+              <div style={{ ...box, display: 'inline-block' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                  {owner.rentalAgreement.map((page, i) => (
+                    <a key={i} href={page} target="_blank" rel="noreferrer"><img src={page} alt={`Rental agreement page ${i + 1}`} style={{ width: 120, height: 160, objectFit: 'cover', borderRadius: 8 }} /></a>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           {isOwner && owner?.nationalIdCard && (
             <div className="fg">
               <label>{lang ? 'صورة بطاقة الهوية' : 'National ID card'}</label>

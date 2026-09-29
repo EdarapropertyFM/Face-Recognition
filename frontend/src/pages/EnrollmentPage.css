@@ -350,3 +350,36 @@
 }
 
 .enrollment-add-residence:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Owner / tenant chooser (first screen) */
+.resident-type-options { display: grid; gap: 12px; margin: 8px 0 18px; }
+.resident-type-option {
+  display: flex; align-items: center; gap: 14px; width: 100%; padding: 16px;
+  border: 1.5px solid #d5e3ea; border-radius: 15px; background: #fff;
+  color: #102a43; font: inherit; text-align: start; cursor: pointer;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.resident-type-option:hover { border-color: #9fc7d5; }
+.resident-type-option.selected { border-color: #008cab; background: #f0f9fc; box-shadow: 0 0 0 3px rgba(0, 140, 171, .15); }
+.resident-type-option strong { display: block; font-size: 16px; }
+.resident-type-option small { display: block; margin-top: 4px; color: #6c8493; font-size: 13px; line-height: 1.45; }
+.resident-type-icon {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 46px; height: 46px; border-radius: 12px; background: #e6f4f8; color: #008cab;
+}
+.resident-type-note { display: flex; align-items: center; gap: 8px; margin: -6px 0 16px; color: #476274; font-size: 13px; }
+.resident-type-badge {
+  display: inline-flex; align-items: center; gap: 8px; margin: -6px 0 18px; padding: 6px 12px;
+  border-radius: 99px; background: #e6f4f8; color: #006f88; font-size: 13px; font-weight: 700;
+}
+.resident-type-badge button { border: 0; background: none; color: #008cab; font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; padding: 0; }
+
+/* Rental agreement pages (tenants) */
+.lease-pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.lease-page { position: relative; margin: 0; border: 1px solid #d5e3ea; border-radius: 11px; overflow: hidden; background: #f5fafc; }
+.lease-page img { display: block; width: 100%; height: 120px; object-fit: cover; }
+.lease-page figcaption { padding: 4px 8px; color: #476274; font-size: 12px; }
+.lease-page button {
+  position: absolute; top: 6px; right: 6px; display: inline-flex; padding: 5px; border: 0; border-radius: 8px;
+  background: rgba(255, 255, 255, .92); color: #c93636; cursor: pointer;
+}

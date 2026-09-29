@@ -64,4 +64,8 @@ export class CreateCameraDto {
 
   @IsOptional() @IsBoolean()
   enabled?: boolean;
+
+  /** 0, 90, 180 or 270 clockwise, for a camera mounted on its side. */
+  @IsOptional() @IsIn([0, 90, 180, 270])
+  rotation?: number;
 }

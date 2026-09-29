@@ -30,4 +30,19 @@ export class BuildingSetting {
   /** Exact unit codes offered at enrolment. Empty = generate from totalUnits. */
   @Column('jsonb', { default: [] })
   unitCodes: string[];
+
+  /**
+   * Registered owner per unit, keyed by unit code.
+   *
+   * This is the property register, which exists before anybody enrols a
+   * face: management knows who owns 4.6C-1 long before that person walks
+   * past a camera. Keeping it here means the Units module can show an
+   * occupied building with named owners, and a later face enrolment has
+   * something to be matched against rather than arriving with no context.
+   *
+   * Only the name is held. No contact details: the community has no reason
+   * to keep a phone number it was not asked to collect.
+   */
+  @Column('jsonb', { default: {} })
+  unitOwners: Record<string, string>;
 }

@@ -70,6 +70,15 @@ export class Camera {
   @Column({ default: 'unconfigured' })
   streamStatus: string;
 
+  /**
+   * Quarter turns needed to show this camera the right way up, for one that
+   * is physically mounted on its side. Applied by the AI before recognition
+   * runs, not in the browser: a face detector is far weaker on faces lying
+   * on their side, and the overlay must be drawn onto an upright picture.
+   */
+  @Column({ type: 'int', default: 0 })
+  rotation: number;
+
   @Column({ type: 'varchar', nullable: true })
   lastHeartbeat: string | null;
 

@@ -1,5 +1,5 @@
 import {
-  ArrayMaxSize, IsArray, IsNotEmpty, IsObject, IsOptional, IsString, ValidateNested,
+  ArrayMaxSize, IsArray, IsIn, IsNotEmpty, IsObject, IsOptional, IsString, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -22,6 +22,10 @@ export class CreateEnrollmentDto {
   @IsString()
   @IsOptional()
   schema?: string;
+
+  /** Owner of the unit, or a tenant renting it (tenants attach owner.rentalAgreement). */
+  @IsOptional() @IsIn(['owner', 'tenant'])
+  residentType?: 'owner' | 'tenant';
 
   @IsString()
   @IsNotEmpty()

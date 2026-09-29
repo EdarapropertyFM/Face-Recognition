@@ -14,6 +14,10 @@ export class Enrollment {
   // The primary residence, kept as plain columns so existing reports and
   // lookups keep working. A resident may hold several units across projects;
   // the full list lives in `residences`, whose first entry is this one.
+  // 'owner' or 'tenant'. A tenant's owner.rentalAgreement holds the lease image.
+  @Column({ default: 'owner' })
+  residentType: string;
+
   @Column()
   building: string;
 

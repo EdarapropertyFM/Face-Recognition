@@ -149,6 +149,7 @@ class MonitorIn(BaseModel):
     camera_id: str = Field(min_length=1, max_length=64)
     source: str = Field(min_length=8, max_length=2048, pattern=r"^rtsps?://")
     zone: int = Field(default=0, ge=0)
+    rotate: int = Field(default=0, description="turn the picture 0/90/180/270 clockwise")
 
 
 class CameraProbeIn(BaseModel):

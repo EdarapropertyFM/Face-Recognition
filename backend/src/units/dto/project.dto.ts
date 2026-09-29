@@ -1,5 +1,6 @@
 import {
-  ArrayMaxSize, IsArray, IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength,
+  ArrayMaxSize, IsArray, IsBoolean, IsInt, IsObject, IsOptional, IsString, Max, MaxLength,
+  Min, MinLength,
 } from 'class-validator';
 
 export class CreateProjectDto {
@@ -37,4 +38,8 @@ export class CreateBuildingDto {
   /** Exact unit codes, for buildings that are not a plain 01..NN sequence. */
   @IsOptional() @IsArray() @ArrayMaxSize(10000) @IsString({ each: true }) @MaxLength(64, { each: true })
   unitCodes?: string[];
+
+  /** Registered owner name per unit code. */
+  @IsOptional() @IsObject()
+  unitOwners?: Record<string, string>;
 }

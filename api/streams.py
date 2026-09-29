@@ -18,6 +18,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from api.frame_rotation import normalise as normalise_angle, rotate as rotate_frame
 from facerec.live import open_source
 
 log = logging.getLogger("api.streams")
@@ -58,8 +59,11 @@ def idle_grace(source: str | int) -> float:
 
 
 class CameraHub:
-    def __init__(self, source: str | int, label: str | None = None) -> None:
+    def __init__(self, source: str | int, label: str | None = None, rotate: int = 0) -> None:
         self.source = source
+        # Applied the moment a frame is grabbed, so recognition sees upright
+        # faces and the overlay is drawn onto an already-upright picture.
+        self.rotate = normalise_angle(rotate)
         self.label = label or str(source)          # credential-free, for HUD/logs
         self.error: str | None = None
         self._frame: np.ndarray | None = None
@@ -172,7 +176,8 @@ class CameraHub:
 
             self.last_frame_t = time.monotonic()
             with self._cond:
-                self._frame, self._seq = frame_bgr, self._seq + 1
+                self._frame = rotate_frame(frame_bgr, self.rotate)
+                self._seq += 1
                 self._cond.notify_all()
 
     def attach(self) -> None:

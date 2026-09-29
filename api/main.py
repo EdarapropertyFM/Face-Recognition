@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from api.log_redaction import install as install_log_redaction  # noqa: E402
 from api.pages import DVR_HTML, ENROLL_HTML, GALLERY_HTML, LIVE_HTML  # noqa: E402
+from api.frame_rotation import normalise as normalise_angle  # noqa: E402
 from api.monitor import MonitorRegistry  # noqa: E402
 from api.streams import CameraHub, JpegWorker, mjpeg_chunk  # noqa: E402
 from facerec import DetectedFace, FaceEngine, load_config  # noqa: E402
@@ -130,7 +131,7 @@ class AppState:
     def model_version(self) -> str:
         return self.engine.model_version
 
-    def hub_for(self, source: str | int) -> CameraHub:
+    def hub_for(self, source: str | int, rotate: int = 0) -> CameraHub:
         key = str(source)
         h = self.hubs.get(key)
         if h is None or not h.alive:
@@ -138,7 +139,12 @@ class AppState:
                 _, label = resolve_source(source, self.config, self.dvr)
             except ValueError as e:                    # dvr:<ch> with no DVR configured
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
-            h = self.hubs[key] = CameraHub(source, label)
+            h = self.hubs[key] = CameraHub(source, label, rotate)
+        elif h.rotate != normalise_angle(rotate):
+            # One camera shares a single hub between the live view and the
+            # 24/7 monitor, so changing the angle in one place corrects both
+            # at once rather than leaving them disagreeing.
+            h.rotate = normalise_angle(rotate)
         return h
 
     @property
@@ -153,12 +159,14 @@ class AppState:
         gets its own tracker state, which is per-camera."""
         return LiveRecognizer(self.engine, self.gallery, self.config, footer=footer)
 
-    def live_for(self, source: str | int) -> LiveWorker:
+    def live_for(self, source: str | int, rotate: int = 0) -> LiveWorker:
         with self.workers_lock:
             key = str(source)
             w = self.live_workers.get(key)
             if w is None or not w.alive:
-                w = self.live_workers[key] = LiveWorker(self, self.hub_for(source))
+                w = self.live_workers[key] = LiveWorker(self, self.hub_for(source, rotate))
+            else:
+                self.hub_for(source, rotate)          # keep the angle current
             return w
 
     def enroll_session(self, person_id: str) -> EnrollSession | None:
@@ -559,10 +567,11 @@ def live_page(request: Request,
 
 @app.get("/stream", summary="MJPEG stream of the annotated live feed (same loop as scripts/live_demo.py)")
 async def stream(request: Request,
-                 source: str | None = Query(None, description="webcam index or RTSP URL")):
+                 source: str | None = Query(None, description="webcam index or RTSP URL"),
+                 rotate: int = Query(0, description="turn the picture 0/90/180/270 clockwise")):
     s = fr(request)
     src: str | int = source if source is not None else s.config.video.source
-    return await mjpeg_response(request, s.live_for(src))
+    return await mjpeg_response(request, s.live_for(src, rotate))
 
 
 # ---------------------------------------------------------- webcam enrolment
@@ -684,6 +693,22 @@ def webcam_cancel(person_id: str, request: Request):
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@app.get("/evidence/{rel:path}", summary="Full-frame still or clip saved with a detection")
+def evidence_file(rel: str, request: Request):
+    """Serve one evidence file: a full-frame still or a short clip.
+
+    `rel` comes from a URL and is untrusted; the resolver refuses anything
+    that escapes the evidence directory.
+    """
+    from api import evidence as _evidence
+    path = _evidence.resolve(fr(request).config.data_dir, rel)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such evidence")
+    media = {".webp": "image/webp", ".mp4": "video/mp4"}.get(path.suffix, "image/jpeg")
+    return Response(path.read_bytes(), media_type=media,
+                    headers={"Cache-Control": "private, max-age=86400"})
+
+
 @app.get("/snapshots/{rel:path}", summary="The face image saved with a detection")
 def snapshot_file(rel: str, request: Request):
     """Serve one saved sighting.
@@ -711,7 +736,7 @@ def monitor_start(body: MonitorIn, request: Request):
     """
     s = fr(request)
     s.monitors.prune()
-    return s.monitors.start(body.camera_id, body.source, body.zone)
+    return s.monitors.start(body.camera_id, body.source, body.zone, body.rotate)
 
 
 @app.get("/monitor", summary="What is being watched, and how it is doing")

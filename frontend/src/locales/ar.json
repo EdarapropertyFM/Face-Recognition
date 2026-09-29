@@ -54,9 +54,7 @@
     "cams_online": "كاميرات متصلة",
     "owners_today": "ملاك اليوم",
     "strangers_today": "غرباء اليوم",
-    "watchlist_hits": "مطابقات المنع",
     "open_incidents": "وقائع مفتوحة",
-    "banned": "محظورون",
     "live_cameras": "كاميرات مباشرة",
     "active_alerts": "تنبيهات نشطة",
     "recent_detections": "الاكتشافات الأخيرة",
@@ -71,7 +69,11 @@
     "unresolved": "تنبيهات غير محلولة",
     "vs_yesterday": "عن الأمس",
     "enrolled_matches": "مطابقات مسجّلة",
-    "unenrolled_faces": "وجوه غير مسجّلة"
+    "unenrolled_faces": "وجوه غير مسجّلة",
+    "pending_enrollments": "تسجيلات قيد المراجعة",
+    "people_enrolled": "شخص مسجّل",
+    "recognition_rate": "نسبة التعرّف",
+    "sightings_today": "رصد اليوم"
   },
   "units": {
     "subtitle": "STMC · المشاريع والمباني والوحدات، محسوبة من الكاميرات والتسجيلات",

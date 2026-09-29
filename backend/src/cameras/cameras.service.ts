@@ -28,7 +28,7 @@ export class CamerasService {
     const source = this.resolveSource(dto);
     const camera = this.cameraRepo.create({
       id: dto.id.trim(), displayName: dto.displayName.trim(), zone: dto.zone,
-      project: dto.project?.trim() || null,
+      project: dto.project?.trim() || null, rotation: dto.rotation ?? 0,
       buildingCode: dto.buildingCode?.trim() || null, location: dto.location?.trim() || null,
       rtspUrlEncrypted: this.cipher.encrypt(source.url), rtspConfigured: true,
       ...source.details,
@@ -246,7 +246,8 @@ export class CamerasService {
       .where('camera.playbackId = :playbackId', { playbackId }).getOne();
     if (!camera) throw new NotFoundException('Camera stream not found');
     if (!camera.enabled || !camera.rtspUrlEncrypted) throw new ConflictException('Camera stream is unavailable');
-    const upstream = await this.ai.streamCamera(this.cipher.decrypt(camera.rtspUrlEncrypted), signal);
+    const upstream = await this.ai.streamCamera(
+      this.cipher.decrypt(camera.rtspUrlEncrypted), signal, camera.rotation ?? 0);
     if (upstream.ok) this.viewerJoined(camera.id);
     return { upstream, cameraId: camera.id };
   }

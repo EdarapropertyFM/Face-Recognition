@@ -39,4 +39,13 @@ export class Detection {
    */
   @Column({ type: 'varchar', nullable: true })
   snapshot: string | null;
+
+  /**
+   * The full frame this sighting came from, relative to the AI's evidence
+   * directory. The face crop above is a thumbnail for lists; on these
+   * cameras a face is ~20px across, so the whole scene -- clothing, what
+   * was carried, which door was used -- is what an operator can act on.
+   */
+  @Column({ type: 'varchar', nullable: true })
+  evidenceStill: string | null;
 }

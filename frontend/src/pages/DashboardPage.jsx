@@ -2,14 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
-import {
-  CAMERAS_ONLINE, CAMERAS_TOTAL,
-  DETECTIONS, ALERTS, FACES
-} from '../store';
+import { ALERTS, FACES } from '../store';
 import { apiFetch } from '../api';
 import { useRealtime } from '../hooks/useRealtime';
-import { 
-  Camera, Users, UserX, UserMinus, ShieldAlert, Building2, Bell
+import {
+  Camera, Users, UserX, ClipboardList, Target, Building2, Bell
 } from 'lucide-react';
 import { displayName, zoneLabel } from '../utils/display';
 
@@ -27,12 +24,17 @@ export default function DashboardPage() {
   const liveFaces = summary?.faces ?? FACES;
   const liveBuildings = summary?.buildings ?? [];
 
-  const owners       = DETECTIONS.filter(d => d.type === 'known' || d.type === 'staff').length;
-  const strangers    = DETECTIONS.filter(d => d.type === 'unknown').length;
-  const watchHits    = DETECTIONS.filter(d => d.type === 'watch').length;
-  const banned       = metrics?.watchlist ?? FACES.filter(f => f.type === 'watch').length;
-  const totalCameras = metrics?.totalCameras ?? CAMERAS_TOTAL;
-  const onlineCameras = metrics?.onlineCameras ?? CAMERAS_ONLINE;
+  // Counted from real sightings since midnight. These used to come from a
+  // hard-coded demo array multiplied by 61, which is how a community with
+  // three enrolled faces reported 610 owners seen today.
+  const owners = metrics?.ownersToday ?? 0;
+  const strangers = metrics?.strangersToday ?? 0;
+  const sightings = metrics?.sightingsToday ?? 0;
+  const pending = metrics?.pendingEnrollments ?? 0;
+  const enrolled = metrics?.enrolledPeople ?? 0;
+  const recognition = metrics?.recognitionRate;      // null when nobody seen yet
+  const totalCameras = metrics?.totalCameras ?? 0;
+  const onlineCameras = metrics?.onlineCameras ?? 0;
 
   return (
     <>
@@ -62,7 +64,7 @@ export default function DashboardPage() {
             <div className="lab">{t('dashboard.owners_today')}</div>
           </div>
           <div className="kpi-body">
-            <div className="val g">{owners * 61}</div>
+            <div className="val g">{owners}</div>
             <div className="tr">{t('dashboard.enrolled_matches')}</div>
           </div>
         </div>
@@ -73,30 +75,39 @@ export default function DashboardPage() {
             <div className="lab">{t('dashboard.strangers_today')}</div>
           </div>
           <div className="kpi-body">
-            <div className="val m">{strangers * 61}</div>
+            <div className="val m">{strangers}</div>
             <div className="tr">{t('dashboard.unenrolled_faces')}</div>
           </div>
         </div>
 
-        <div className="kpi-card glass-panel">
+        {/* Replaces the watchlist tile, which belongs to phase 2. This one
+            is actionable: a pending registration is somebody waiting on an
+            admin, and it is the only number here that needs a human. */}
+        <div className="kpi-card glass-panel" style={{ cursor: 'pointer' }} onClick={() => navigate('/enrollments')}>
           <div className="kpi-header">
-            <span className="kpi-icon red"><ShieldAlert size={18} /></span>
-            <div className="lab">{t('dashboard.watchlist_hits')}</div>
+            <span className="kpi-icon amber"><ClipboardList size={18} /></span>
+            <div className="lab">{t('dashboard.pending_enrollments')}</div>
           </div>
           <div className="kpi-body">
-            <div className="val r">{watchHits * 4}</div>
-            <div className="tr">Immediate review needed</div>
+            <div className={`val ${pending ? 'm' : 'g'}`}>{pending}</div>
+            <div className="tr">{enrolled} {t('dashboard.people_enrolled')}</div>
           </div>
         </div>
 
+        {/* Replaces the banned tile. The share of people the cameras could
+            actually identify is the most honest measure of whether
+            recognition is working, and it is the number that moves when
+            enrolment or camera placement improves. */}
         <div className="kpi-card glass-panel">
           <div className="kpi-header">
-            <span className="kpi-icon red"><UserMinus size={18} /></span>
-            <div className="lab">{t('dashboard.banned')}</div>
+            <span className="kpi-icon blue"><Target size={18} /></span>
+            <div className="lab">{t('dashboard.recognition_rate')}</div>
           </div>
           <div className="kpi-body">
-            <div className="val r">{banned}</div>
-            <div className="tr">Total on list</div>
+            <div className={`val ${recognition === null || recognition === undefined ? 'a' : recognition >= 70 ? 'g' : recognition >= 40 ? 'm' : 'r'}`}>
+              {recognition === null || recognition === undefined ? '—' : `${recognition}%`}
+            </div>
+            <div className="tr">{sightings} {t('dashboard.sightings_today')}</div>
           </div>
         </div>
       </div>

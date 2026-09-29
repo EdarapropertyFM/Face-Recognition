@@ -46,6 +46,29 @@ export class DetectionsService {
     return this.tokens.issue(rel, 3600);
   }
 
+  /**
+   * Fetch full-frame evidence: the still, or the clip covering the seconds
+   * either side of the sighting.
+   *
+   * The clip is written a few seconds after the detection is recorded, so
+   * its path is never part of that message; it shares the still's name with
+   * an .mp4 extension instead. A request that arrives before it is finished
+   * simply 404s, which the browser treats as "no clip".
+   */
+  async evidence(rel: string, token: string): Promise<{ body: Buffer; type: string }> {
+    if (!rel || rel.includes('..')) throw new NotFoundException('No such evidence');
+    this.tokens.verify(token, rel);
+    const base = (process.env.AI_BASE_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
+    const url = `${base}/evidence/${rel.split('/').map(encodeURIComponent).join('/')}`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(15000) }).catch(() => null);
+    if (!response?.ok) throw new NotFoundException('No such evidence');
+    return {
+      body: Buffer.from(await response.arrayBuffer()),
+      type: rel.endsWith('.webp') ? 'image/webp'
+        : rel.endsWith('.mp4') ? 'video/mp4' : 'image/jpeg',
+    };
+  }
+
   /** Fetch a saved sighting image from the AI service. */
   async snapshot(rel: string, token: string): Promise<Buffer> {
     if (!rel || rel.includes('..')) throw new NotFoundException('No such snapshot');
@@ -95,6 +118,13 @@ export class DetectionsService {
         ...d,
         camera: describeCamera(d.cam, camById.get(d.cam)),
         snapshotToken: d.snapshot ? this.snapshotToken(d.snapshot) : null,
+        // The full frame, plus the clip that shares its name.
+        evidenceToken: d.evidenceStill ? this.snapshotToken(d.evidenceStill) : null,
+        // Animated WebP, not MP4: OpenCV on the AI host can only encode
+        // MPEG-4 Part 2, which browsers refuse to decode.
+        evidenceClip: d.evidenceStill ? d.evidenceStill.replace(/\.jpg$/, '.webp') : null,
+        evidenceClipToken: d.evidenceStill
+          ? this.snapshotToken(d.evidenceStill.replace(/\.jpg$/, '.webp')) : null,
       })),
     };
   }

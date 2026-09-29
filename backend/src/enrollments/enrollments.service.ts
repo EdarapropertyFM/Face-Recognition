@@ -71,6 +71,7 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
       ref,
       owner: storedOwner,
       schema: createDto.schema || 'stmc.enroll.v1',
+      residentType: createDto.residentType === 'tenant' ? 'tenant' : 'owner',
       submittedAt: createDto.submittedAt || new Date().toISOString(),
       // Drops a staff phone number and any under-16 National ID before storage;
       // the member's photos and ID card are encrypted to disk like the owner's.
@@ -108,6 +109,13 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
 
   async createSelfService(createDto: CreateEnrollmentDto) {
     const owner = createDto.owner as Record<string, unknown>;
+    if (createDto.residentType === 'tenant') {
+      const pages = Array.isArray(owner.rentalAgreement) ? owner.rentalAgreement : [owner.rentalAgreement];
+      const valid = pages.filter((page) => typeof page === 'string' && page.startsWith('data:image/'));
+      if (!valid.length) throw new ConflictException('Tenants must attach their rental agreement');
+      if (valid.length !== pages.length) throw new ConflictException('Every rental agreement page must be an image');
+      if (valid.length > 8) throw new ConflictException('Attach at most 8 rental agreement pages');
+    }
     const { nid, mobile } = this.normalizedIdentity(owner);
     if (!nid || !mobile) throw new ConflictException('National ID and mobile number are required');
 
@@ -344,7 +352,7 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
           id: `F-${Math.floor(100000 + Math.random() * 900000)}`,
           name: [String(locked.owner?.name ?? 'Owner'), String(locked.owner?.name ?? 'Owner')],
           type: 'known',
-          role: ['Owner', 'مالك'],
+          role: locked.residentType === 'tenant' ? ['Tenant', 'مستأجر'] : ['Owner', 'مالك'],
           idno: String(locked.owner?.nid ?? ''),
           issuer: '',
           enroll: new Date().toISOString().slice(0, 10),

@@ -34,6 +34,25 @@ class QualityConfig(BaseModel):
     max_pitch_deg: float = 35.0
 
 
+class MonitoringConfig(BaseModel):
+    """The looser gate used when watching a camera continuously.
+
+    Enrolment demands a large, sharp, near-frontal face because a bad
+    template defines someone's identity permanently. Logging a sighting is a
+    weaker claim, so it keeps only enough of a floor to exclude the detector's
+    tiny false positives.
+    """
+    # Size is a poor filter on a wide-angle camera: a real face 6m away
+    # measured 20px while a detector false positive on a wall measured 27px.
+    # The floor is therefore set low, and detector confidence does the work
+    # of telling a face from a texture.
+    min_face_size_px: int = 18
+    min_det_score: float = 0.60
+    blur_threshold: float = 15.0
+    max_yaw_deg: float = 80.0
+    max_pitch_deg: float = 60.0
+
+
 class MatchingConfig(BaseModel):
     threshold_high: float = 0.40
     threshold_low: float = 0.30
@@ -92,6 +111,7 @@ class Config(BaseModel):
     model: ModelConfig = ModelConfig()
     detection: DetectionConfig = DetectionConfig()
     quality: QualityConfig = QualityConfig()
+    monitoring: MonitoringConfig = MonitoringConfig()
     matching: MatchingConfig = MatchingConfig()
     database: DatabaseConfig = DatabaseConfig()
     enrollment: EnrollmentConfig = EnrollmentConfig()

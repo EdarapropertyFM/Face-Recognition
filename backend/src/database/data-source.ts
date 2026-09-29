@@ -13,6 +13,8 @@ import { User } from '../users/entities/user.entity';
 import { InitialStmcSchema1727049600000 } from './migrations/1727049600000-initial-stmc-schema';
 import { CameraStreamFoundation1727136000000 } from './migrations/1727136000000-camera-stream-foundation';
 import { CameraPlaybackDefault1727136100000 } from './migrations/1727136100000-camera-playback-default';
+import { EnrollmentResidentType1727481600000 } from './migrations/1727481600000-enrollment-resident-type';
+import { UnitRegistry1727568000000 } from './migrations/1727568000000-unit-registry';
 
 try { process.loadEnvFile('.env'); } catch { /* deployment variables may come from the host */ }
 
@@ -25,5 +27,5 @@ export default new DataSource({
   database: process.env.DB_NAME || 'stmc',
   synchronize: false,
   entities: [User, Face, Alert, Incident, Enrollment, BuildingSetting, Project, Camera, Setting, Detection],
-  migrations: [InitialStmcSchema1727049600000, CameraStreamFoundation1727136000000, CameraPlaybackDefault1727136100000],
+  migrations: [InitialStmcSchema1727049600000, CameraStreamFoundation1727136000000, CameraPlaybackDefault1727136100000, EnrollmentResidentType1727481600000, UnitRegistry1727568000000],
 });

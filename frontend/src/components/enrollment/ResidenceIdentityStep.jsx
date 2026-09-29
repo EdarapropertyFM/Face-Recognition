@@ -1,5 +1,5 @@
 import {
-  ArrowRight, Building2, CheckCircle2, CalendarDays, CreditCard, Layers, Mail, Phone, Plus,
+  ArrowRight, Building2, CheckCircle2, CalendarDays, CreditCard, FileSignature, Layers, Mail, Phone, Plus,
   Trash2, Upload, User,
 } from 'lucide-react';
 import EnrollmentProgress from './EnrollmentProgress';
@@ -11,7 +11,10 @@ import { buildingsInProject, draftResidences, unitsInBuilding } from '../../util
 export default function ResidenceIdentityStep({
   draft, errors, projects, projectsLoading, projectsError, onRetryProjects,
   onChange, onResidenceChange, onAddResidence, onRemoveResidence, onDocumentChange, onContinue,
+  onAddLeasePages, onRemoveLeasePage, onChangeResidentType,
 }) {
+  const leasePages = draft.leasePages ?? [];
+  const tenant = draft.residentType === 'tenant';
   const showNationalId = requiresNationalId(draft.age);
   const residences = draftResidences(draft);
   const residenceErrors = errors.residences ?? {};
@@ -23,6 +26,10 @@ export default function ResidenceIdentityStep({
       <p className="enrollment-step-label">Step 1 of 5 · Residence & identity</p>
       <h1 id="residence-title">Register your residence</h1>
       <p className="enrollment-subtitle">Your entered details are saved automatically on this device.</p>
+      <p className="resident-type-badge">
+        Registering as {tenant ? 'a tenant' : 'the owner'}
+        <button type="button" onClick={onChangeResidentType}>Change</button>
+      </p>
       <form onSubmit={(event) => { event.preventDefault(); onContinue(); }} noValidate>
         <h2 className="enrollment-section-title"><Building2 size={18} aria-hidden="true" /> Residence</h2>
 
@@ -123,6 +130,29 @@ export default function ResidenceIdentityStep({
               onChange={(event) => onDocumentChange(event.target.files?.[0] ?? null)} />
           </label>
           {errors.idDoc ? <p className="enrollment-field-error">{errors.idDoc}</p> : null}
+        </div>}
+        {/* Tenants prove the right to live in the unit with their lease. */}
+        {tenant && <div className={`enrollment-document ${errors.leaseDoc ? 'has-error' : ''}`}>
+          <span className="enrollment-document-label">Rental agreement * {leasePages.length ? `(${leasePages.length} ${leasePages.length === 1 ? 'page' : 'pages'})` : ''}</span>
+          {leasePages.length > 0 && <div className="lease-pages">
+            {leasePages.map((page, index) => (
+              <figure key={page.id} className="lease-page">
+                <img src={page.image} alt={`Rental agreement page ${index + 1}`} />
+                <figcaption>Page {index + 1}</figcaption>
+                <button type="button" aria-label={`Remove page ${index + 1}`} onClick={() => onRemoveLeasePage(page.id)}><Trash2 size={14} /></button>
+              </figure>
+            ))}
+          </div>}
+          {leasePages.length < 8 && <label htmlFor="lease-document">
+            {leasePages.length ? <Plus size={22} aria-hidden="true" /> : <FileSignature size={22} aria-hidden="true" />}
+            <span>
+              <strong>{leasePages.length ? 'Add another page' : 'Upload rental agreement'}</strong>
+              <small>{leasePages.length ? 'Optional: add more pages if your agreement has them.' : 'One photo per page; one page is fine · JPG, PNG or WebP'}</small>
+            </span>
+            <input id="lease-document" name="leaseDocument" type="file" accept="image/jpeg,image/png,image/webp" multiple
+              onChange={(event) => { onAddLeasePages([...(event.target.files ?? [])]); event.target.value = ''; }} />
+          </label>}
+          {errors.leaseDoc ? <p className="enrollment-field-error">{errors.leaseDoc}</p> : null}
         </div>}
         <button className="enrollment-button" type="submit"
           disabled={projectsLoading || Boolean(projectsError) || !projects.length}>

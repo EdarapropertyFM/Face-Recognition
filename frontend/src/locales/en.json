@@ -54,9 +54,7 @@
     "cams_online": "Cameras Online",
     "owners_today": "Owners Today",
     "strangers_today": "Strangers Today",
-    "watchlist_hits": "Watchlist Hits",
     "open_incidents": "Open Incidents",
-    "banned": "Banned",
     "live_cameras": "Live Cameras",
     "active_alerts": "Active Alerts",
     "recent_detections": "Recent Detections",
@@ -71,7 +69,11 @@
     "unresolved": "unresolved alerts",
     "vs_yesterday": "vs yesterday",
     "enrolled_matches": "enrolled matches",
-    "unenrolled_faces": "unenrolled faces"
+    "unenrolled_faces": "unenrolled faces",
+    "pending_enrollments": "Pending registrations",
+    "people_enrolled": "people enrolled",
+    "recognition_rate": "Recognition rate",
+    "sightings_today": "sightings today"
   },
   "units": {
     "subtitle": "STMC · projects, buildings and units, counted from live cameras and enrolments",

@@ -4,6 +4,7 @@ import FaceCaptureStep from '../components/enrollment/FaceCaptureStep';
 import EnrollmentSuccess from '../components/enrollment/EnrollmentSuccess';
 import HouseholdStep from '../components/enrollment/HouseholdStep';
 import ResidenceIdentityStep from '../components/enrollment/ResidenceIdentityStep';
+import ResidentTypeStep from '../components/enrollment/ResidentTypeStep';
 import ReviewSubmitStep from '../components/enrollment/ReviewSubmitStep';
 import VehiclesStep from '../components/enrollment/VehiclesStep';
 import { useEnrollmentDraft } from '../hooks/useEnrollmentDraft';
@@ -22,7 +23,7 @@ export default function EnrollmentPage() {
   const {
     draft, errors, identityDocument, faceCaptures, aiPersonId, step, updateField,
     updateResidence, addResidence, removeResidence,
-    setIdentityDocument, updateFaceCaptures, setAiPersonId, setFamily, setCars, clearSavedDraft,
+    setIdentityDocument, addLeasePages, removeLeasePage, setResidentType, updateFaceCaptures, setAiPersonId, setFamily, setCars, clearSavedDraft,
     goToStep, validateResidence, resumable, resumeStep,
   } = useEnrollmentDraft();
   // Offered, never applied silently: on a shared phone or tablet the next
@@ -31,6 +32,9 @@ export default function EnrollmentPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [submittedRef, setSubmittedRef] = useState('');
+  // Owner or tenant is asked first; a resumed draft that already chose skips it.
+  const [typeConfirmed, setTypeConfirmed] = useState(Boolean(draft.residentType));
+  const tenant = draft.residentType === 'tenant';
 
   const continueToFaceCapture = () => {
     if (validateResidence(projects)) {
@@ -40,6 +44,10 @@ export default function EnrollmentPage() {
   };
 
   const submitEnrollment = async () => {
+    if (tenant && !draft.leasePages?.length) {
+      setSubmitError('Your rental agreement is required. Go back to step 1 and attach it.');
+      return;
+    }
     if ((!identityDocument && !draft.idDocImage) || faceCaptures.length !== 5) {
       setSubmitError('Your ID card and all five face photos are required. Go back and capture them again.');
       return;
@@ -52,9 +60,11 @@ export default function EnrollmentPage() {
     setSubmitError('');
     try {
       const idCard = identityDocument ? await compressImageFile(identityDocument) : draft.idDocImage;
+      const rentalAgreement = tenant ? draft.leasePages.map((page) => page.image) : undefined;
       const faces = Object.fromEntries(faceCaptures.map((capture) => [capture.key, capture.image]));
       const payload = {
         schema: 'stmc.enroll.v1',
+        residentType: tenant ? 'tenant' : 'owner',
         building: draft.building,
         unit: draft.unit,
         // Every unit this resident holds; the first is the primary one above.
@@ -63,6 +73,7 @@ export default function EnrollmentPage() {
         owner: {
           name: draft.name.trim(), age: Number(draft.age), nid: draft.nid || null, mobile: draft.mobile,
           email: draft.email.trim() || null, nationalIdCard: idCard, faces,
+          ...(tenant ? { rentalAgreement } : {}),
           consentAcceptedAt: new Date().toISOString(), consentVersion: 'pdpl-v1',
         },
         family: draft.family.map(memberPayload),
@@ -101,13 +112,16 @@ export default function EnrollmentPage() {
             <button type="button" className="enrollment-button" onClick={() => { setResumeOffer(false); goToStep(resumeStep); }}>
               Continue
             </button>
-            <button type="button" className="enrollment-button secondary" onClick={() => { clearSavedDraft(); setResumeOffer(false); goToStep(1); }}>
+            <button type="button" className="enrollment-button secondary" onClick={() => { clearSavedDraft(); setResumeOffer(false); setTypeConfirmed(false); goToStep(1); }}>
               Start again
             </button>
           </div>
         </div>}
         <ErrorBoundary>
-          {step === 1 ? (
+          {step === 1 && !typeConfirmed ? (
+            <ResidentTypeStep value={draft.residentType} onChange={setResidentType}
+              onContinue={() => { setTypeConfirmed(true); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />
+          ) : step === 1 ? (
             <ResidenceIdentityStep
               draft={draft}
               errors={errors}
@@ -120,6 +134,9 @@ export default function EnrollmentPage() {
               onAddResidence={addResidence}
               onRemoveResidence={removeResidence}
               onDocumentChange={setIdentityDocument}
+              onAddLeasePages={addLeasePages}
+              onRemoveLeasePage={removeLeasePage}
+              onChangeResidentType={() => setTypeConfirmed(false)}
               onContinue={continueToFaceCapture}
             />
           ) : step === 2 ? (

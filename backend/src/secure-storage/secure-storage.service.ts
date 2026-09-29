@@ -27,6 +27,13 @@ export class SecureStorageService {
     if (typeof stored.nationalIdCard === 'string' && stored.nationalIdCard.startsWith('data:image/')) {
       stored.nationalIdCard = await this.writeImage(ref, `${prefix}national-id`, stored.nationalIdCard);
     }
+    // One photo per page of the rental agreement (a single string is still accepted).
+    if (stored.rentalAgreement !== undefined && stored.rentalAgreement !== null) {
+      const pages = (Array.isArray(stored.rentalAgreement) ? stored.rentalAgreement : [stored.rentalAgreement])
+        .filter((page): page is string => typeof page === 'string');
+      stored.rentalAgreement = await Promise.all(pages.map((page, i) => page.startsWith('data:image/')
+        ? this.writeImage(ref, `${prefix}rental-agreement-${i + 1}`, page) : page));
+    }
     return stored;
   }
 
@@ -39,6 +46,11 @@ export class SecureStorageService {
     hydrated.faces = faces;
     if (typeof hydrated.nationalIdCard === 'string' && hydrated.nationalIdCard.startsWith(ASSET_PREFIX)) {
       hydrated.nationalIdCard = await this.readDataUrl(hydrated.nationalIdCard);
+    }
+    if (hydrated.rentalAgreement !== undefined && hydrated.rentalAgreement !== null) {
+      const pages = Array.isArray(hydrated.rentalAgreement) ? hydrated.rentalAgreement : [hydrated.rentalAgreement];
+      hydrated.rentalAgreement = (await Promise.all(pages.map((page) => this.resolveImage(page).catch(() => null))))
+        .filter(Boolean);
     }
     return hydrated;
   }

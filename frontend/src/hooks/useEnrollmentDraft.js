@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  EMPTY_ENROLLMENT_DRAFT, draftResidences, newResidence, sanitizeStoredDraft, validateResidenceDraft,
+  EMPTY_ENROLLMENT_DRAFT, MAX_LEASE_PAGES, draftResidences, newResidence, sanitizeStoredDraft, validateResidenceDraft,
 } from '../utils/enrollment';
 import { compressImageFile } from '../utils/image';
 import {
@@ -92,6 +92,47 @@ export function useEnrollmentDraft() {
       .catch(() => undefined);      // submit re-compresses from the File if this fails
   };
 
+  // Rental agreement pages: one or several photos, each compressed on the
+  // way in (smaller than the ID card: several of them share one request).
+  const addLeasePages = async (files) => {
+    clearFieldError('leaseDoc');
+    const accepted = [];
+    for (const file of files) {
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+        setErrors((current) => ({ ...current, leaseDoc: `${file.name}: use a JPG, PNG or WebP image.` }));
+        continue;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        setErrors((current) => ({ ...current, leaseDoc: `${file.name}: the image must be 10 MB or smaller.` }));
+        continue;
+      }
+      try {
+        accepted.push({ id: crypto.randomUUID(), name: file.name, image: await compressImageFile(file, 1400, 0.72) });
+      } catch {
+        setErrors((current) => ({ ...current, leaseDoc: `${file.name}: could not read this image.` }));
+      }
+    }
+    setDraft((current) => {
+      const pages = [...(current.leasePages ?? []), ...accepted];
+      if (pages.length > MAX_LEASE_PAGES) {
+        setErrors((errs) => ({ ...errs, leaseDoc: `Attach at most ${MAX_LEASE_PAGES} pages.` }));
+      }
+      return { ...current, leasePages: pages.slice(0, MAX_LEASE_PAGES) };
+    });
+  };
+
+  const removeLeasePage = (id) => setDraft((current) => ({
+    ...current, leasePages: (current.leasePages ?? []).filter((page) => page.id !== id),
+  }));
+
+  const setResidentType = (residentType) => {
+    setDraft((current) => ({
+      ...current, residentType,
+      // An owner has no rental agreement; drop pages attached before switching.
+      ...(residentType === 'owner' ? { leasePages: [] } : {}),
+    }));
+  };
+
   const validateResidence = (projects) => {
     const nextErrors = validateResidenceDraft(draft, identityDocument, projects);
     setErrors(nextErrors);
@@ -122,7 +163,7 @@ export function useEnrollmentDraft() {
   return {
     draft, errors, identityDocument, faceCaptures, aiPersonId, step, updateField,
     updateResidence, addResidence, removeResidence,
-    setIdentityDocument, updateFaceCaptures, setAiPersonId, setFamily, setCars, clearSavedDraft,
+    setIdentityDocument, addLeasePages, removeLeasePage, setResidentType, updateFaceCaptures, setAiPersonId, setFamily, setCars, clearSavedDraft,
     goToStep: setStep, validateResidence, resumable, resumeStep,
   };
 }

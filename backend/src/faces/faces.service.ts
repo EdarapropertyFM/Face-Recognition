@@ -67,7 +67,8 @@ export class FacesService {
     for (const e of approved) {
       const people: Array<{ aiPersonId: string; name: string; role: [string, string]; idno: string; img: string; owner: boolean }> = [];
       if (e.aiPersonId) {
-        people.push({ aiPersonId: e.aiPersonId, name: String(e.owner?.name ?? 'Owner'), role: ['Owner', 'مالك'],
+        people.push({ aiPersonId: e.aiPersonId, name: String(e.owner?.name ?? 'Owner'),
+          role: e.residentType === 'tenant' ? ['Tenant', 'مستأجر'] : ['Owner', 'مالك'],
           idno: String(e.owner?.nid ?? ''), img: String(e.owner?.faces?.front ?? ''), owner: true });
       }
       for (const m of e.family ?? []) {
@@ -165,10 +166,13 @@ export class FacesService {
       if (img) resolved[k] = img;
     }
     const nationalIdCard = await this.storage.resolveImage(e.owner?.nationalIdCard).catch(() => null);
+    const pages = e.owner?.rentalAgreement ? [e.owner.rentalAgreement].flat() : [];
+    const rentalAgreement = (await Promise.all(pages.map((p: unknown) => this.storage.resolveImage(p).catch(() => null))))
+      .filter(Boolean);
     return {
-      ref: e.ref, status: e.status, building: e.building, unit: e.unit, submittedAt: e.submittedAt,
+      ref: e.ref, status: e.status, residentType: e.residentType ?? 'owner', building: e.building, unit: e.unit, submittedAt: e.submittedAt,
       aiSyncStatus: e.aiSyncStatus, validationNote: e.validationNote,
-      owner: { ...e.owner, faces: resolved, nationalIdCard },
+      owner: { ...e.owner, faces: resolved, nationalIdCard, rentalAgreement },
       family: (e.family ?? []).map((m) => ({ name: m?.name, relation: m?.relation, nid: m?.nid, mobile: m?.mobile })),
       cars: e.cars ?? [],
     };

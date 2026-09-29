@@ -4,6 +4,7 @@ import { Upload, Search, CheckCircle, XCircle, Trash2, Info, FileCheck, Car, Use
 import { PENDING_ENROLLMENTS } from '../store';
 import { useAuth } from '../context/useAuth';
 import { apiFetch } from '../api';
+import UnitCoverage from '../components/UnitCoverage';
 
 const STATUS_COLORS = {
   pending: 'open', processing: 'actioned', approved: 'closed', rejected: 'watch',
@@ -18,6 +19,7 @@ export default function EnrollmentsPage() {
   const [statusFilter, setStatusFilter] = useState('pending');
   const [search, setSearch] = useState('');
   const [viewing, setViewing] = useState(null);
+  const [tab, setTab] = useState('requests');   // 'requests' | 'coverage'
 
   const loadRecords = () => apiFetch('/enrollments')
     .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to load enrollments')))
@@ -83,6 +85,12 @@ export default function EnrollmentsPage() {
         </div>
       </div>
 
+      <div className="chips" style={{ marginBottom: 16 }}>
+        <span className={`chip ${tab === 'requests' ? 'on' : ''}`} onClick={() => setTab('requests')}>{lang ? 'طلبات التسجيل' : 'Registration requests'}</span>
+        <span className={`chip ${tab === 'coverage' ? 'on' : ''}`} onClick={() => setTab('coverage')}>{lang ? 'التغطية حسب المبنى' : 'Coverage by building'}</span>
+      </div>
+
+      {tab === 'coverage' ? <UnitCoverage embedded /> : <>
       <div className="toolbar" style={{ marginBottom: 12 }}>
         <div className="search"><Search size={14} /><input type="text" placeholder={lang ? 'بحث…' : 'Search…'} value={search} onChange={e => setSearch(e.target.value)} /></div>
         <div className="chips">
@@ -118,7 +126,7 @@ export default function EnrollmentsPage() {
             {filtered.length ? filtered.map(r => (
               <tr key={r.ref} onClick={() => setViewing(r.ref)} style={{ cursor: 'pointer' }}>
                 <td className="mono" style={{ color: '#fff' }}>{r.ref}</td>
-                <td><b>{r.owner?.name || '—'}</b></td>
+                <td><b>{r.owner?.name || '—'}</b> {r.residentType === 'tenant' ? <span className="tag actioned" style={{ marginLeft: 6, fontSize: 10 }}>{lang ? 'مستأجر' : 'Tenant'}</span> : <span className="tag known" style={{ marginLeft: 6, fontSize: 10 }}>{lang ? 'مالك' : 'Owner'}</span>}</td>
                 <td>{r.building} <span style={{ opacity: 0.5 }}>·</span> <span className="mono">{r.unit}</span></td>
                 <td><span style={{ padding: '2px 8px', background: 'rgba(255,255,255,0.05)', borderRadius: 12 }}>{1 + (r.family?.length || 0)}</span></td>
                 <td><span style={{ padding: '2px 8px', background: 'rgba(255,255,255,0.05)', borderRadius: 12 }}>{r.cars?.length || 0}</span></td>
@@ -133,6 +141,8 @@ export default function EnrollmentsPage() {
         </table>
       </div>
 
+      </>}
+
       {/* Modal */}
       {rec && (
         <div className="overlay" onClick={e => e.target === e.currentTarget && setViewing(null)}>
@@ -144,6 +154,7 @@ export default function EnrollmentsPage() {
             </div>
             <div className="mb">
               <div className="frow">
+                <div className="fg"><label>{lang ? 'نوع الساكن' : 'Resident type'}</label><div style={{ color: '#fff', fontSize: 14, fontWeight: 500 }}>{rec.residentType === 'tenant' ? (lang ? 'مستأجر' : 'Tenant') : (lang ? 'مالك' : 'Owner')}</div></div>
                 <div className="fg"><label>Building / Unit</label><div style={{ color: '#fff', fontSize: 14, fontWeight: 500 }}>{rec.building} <span style={{ opacity: 0.5 }}>·</span> <span className="mono">{rec.unit}</span></div></div>
                 <div className="fg"><label>Status</label><div style={{ marginTop: 4 }}><span className={`tag ${STATUS_COLORS[rec.status || 'pending']}`} style={{ boxShadow: '0 2px 4px rgba(0,0,0,0.2)' }}>{rec.status || 'pending'}</span></div></div>
                 <div className="fg"><label>AI sync</label><div className="mono" style={{ color: 'var(--muted)', fontSize: 13, background: 'var(--stat-bg)', padding: '6px 12px', borderRadius: 8, display: 'inline-block' }}>{rec.aiSyncStatus || 'not_started'}</div></div>
@@ -171,6 +182,23 @@ export default function EnrollmentsPage() {
                     : <div className="hint" style={{ padding: '20px 40px' }}>Not provided</div>}
                 </div>
               </div>
+
+              {rec.residentType === 'tenant' && (
+                <div className="fg">
+                  <label>{lang ? 'عقد الإيجار' : 'Rental agreement'}</label>
+                  <div style={{ background: 'var(--stat-bg)', padding: '12px', borderRadius: 12, border: '1px solid var(--glass-border)', display: 'inline-block' }}>
+                    {[rec.owner?.rentalAgreement ?? []].flat().filter(Boolean).length
+                      ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                          {[rec.owner.rentalAgreement].flat().filter(Boolean).map((page, i) => (
+                            <a key={i} href={page} target="_blank" rel="noreferrer" title={`${lang ? 'صفحة' : 'Page'} ${i + 1}`}>
+                              <img src={page} alt={`Rental agreement page ${i + 1}`} style={{ width: 150, height: 200, objectFit: 'cover', borderRadius: 8 }} />
+                            </a>
+                          ))}
+                        </div>
+                      : <div className="hint" style={{ padding: '20px 40px', color: 'var(--red)' }}>{lang ? 'لم يُرفق' : 'Not provided'}</div>}
+                  </div>
+                </div>
+              )}
 
               <div className="fg">
                 <label><div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}><Users size={14} color="var(--accent)" /> {lang ? 'أفراد الأسرة' : 'Household'} ({rec.family?.length || 0})</div></label>

@@ -20,7 +20,7 @@ import urllib.error
 import urllib.request
 import json
 
-from api import snapshots
+from api import evidence, snapshots
 from api.backend_link import describe, resolve
 from api.report_policy import ReportPolicy, detection_type
 from api.stranger_registry import StrangerRegistry
@@ -84,10 +84,20 @@ class MonitorWorker:
         self.reported = 0
         self.post_failures = 0
         self.post_error: str | None = None
+        self.low_quality_skipped = 0
+        self.low_quality_reasons: dict[str, int] = {}
+        self.last_rejected: dict | None = None
+        self.last_accepted: dict | None = None
+        self.last_clip: str | None = None
         self.last_report_at: float | None = None
         self.error: str | None = None
         self._last_frame = None
         self.snapshots_saved = 0
+        self.clips_saved = 0
+        # The seconds BEFORE a detection are the valuable ones: a face is
+        # usually only recognised once somebody is well inside, by which
+        # point the approach has already happened.
+        self.history = evidence.FrameBuffer()
         self._stop = threading.Event()
         self._thread = threading.Thread(
             target=self._run, name=f"monitor-{camera_id}", daemon=True)
@@ -115,6 +125,13 @@ class MonitorWorker:
             "post_failures": self.post_failures,
             "post_error": self.post_error,
             "snapshots": self.snapshots_saved,
+            "clips": self.clips_saved,
+            "last_clip": self.last_clip,
+            "history_frames": len(self.history),
+            "low_quality_skipped": self.low_quality_skipped,
+            "low_quality_reasons": dict(self.low_quality_reasons),
+            "last_rejected": self.last_rejected,
+            "last_accepted": self.last_accepted,
             "error": self.error or self.hub.error,
         }
 
@@ -136,6 +153,7 @@ class MonitorWorker:
                 seq = seq_new
                 self.frames += 1
                 self._last_frame = frame
+                self.history.add(frame)
                 try:
                     # The engine and gallery are shared with every endpoint
                     # and every other worker, and neither is thread-safe.
@@ -149,6 +167,76 @@ class MonitorWorker:
             self.hub.detach()
             log.info("monitor %s stopped after %d frames, %d reported",
                      self.camera_id, self.frames, self.reported)
+
+    def _start_clip(self, track_id: int, moment: float) -> None:
+        """Save the seconds either side of this sighting, in the background.
+
+        The tail has to be waited for, so this runs off the recognition
+        thread: blocking there would stall the camera for the length of the
+        clip and drop everything happening during it.
+        """
+        began = time.monotonic() - evidence.BUFFER_SECONDS
+        data_dir = self.state.config.data_dir
+
+        def assemble():
+            time.sleep(evidence.CLIP_AFTER_S)
+            frames = self.history.since(began)
+            rel = evidence.write_clip(data_dir, frames, self.camera_id, track_id, moment)
+            if rel:
+                self.clips_saved += 1
+                self.last_clip = rel
+
+        threading.Thread(target=assemble, name=f"clip-{self.camera_id}-{track_id}",
+                         daemon=True).start()
+
+    @staticmethod
+    def _quality_report(track):
+        """The quality report behind the best sample, if there is one."""
+        last = getattr(track, "last_face", None)
+        return getattr(last, "quality", None)
+
+    def _quality_ok(self, track) -> bool:
+        """Whether this face is worth writing down.
+
+        Judged against the MONITORING gate, not the enrolment one. Enrolment
+        demands a large, sharp, near-frontal face because a bad template
+        defines someone's identity permanently. A sighting is a weaker claim:
+        "a person was here, and here is their photo" helps an operator even
+        when the embedding is too poor to match, and a poor embedding simply
+        fails to match rather than matching the wrong person.
+        """
+        report = self._quality_report(track)
+        if report is None:
+            return False
+        gate = self.state.config.monitoring
+        last = getattr(track, "last_face", None)
+        det_score = float(getattr(last, "det_score", 0.0) or 0.0)
+        return (det_score >= gate.min_det_score
+                and report.face_width_px >= gate.min_face_size_px
+                and report.blur_score >= gate.blur_threshold
+                and abs(report.yaw_deg) <= gate.max_yaw_deg
+                and abs(report.pitch_deg) <= gate.max_pitch_deg)
+
+    @staticmethod
+    def _quality_ok_strict(track) -> bool:
+        """Whether this track ever produced a face worth trusting.
+
+        The engine deliberately does not filter on quality -- it attaches a
+        report and leaves the decision to the caller. The live view is the
+        caller that wants everything, boxes and all. This one is not: an
+        unattended monitor that records whatever the detector fires on turns
+        a patch of wall into a "stranger" with a meaningless embedding and an
+        alert behind it.
+
+        Samples are sorted best-first with quality passing outranking
+        failing, so the first one answers the question.
+        """
+        samples = getattr(track, "samples", None)
+        if samples:
+            return bool(samples[0].quality_key[0])
+        last = getattr(track, "last_face", None)
+        quality = getattr(last, "quality", None)
+        return bool(getattr(quality, "passed", False))
 
     @staticmethod
     def _embedding_of(track):
@@ -170,6 +258,44 @@ class MonitorWorker:
         boxes = {tid: track.bbox for tid, track in tracks.items()}
         for track_id, result in results.items():
             decision = getattr(result.decision, "value", str(result.decision))
+            # A face too small, too blurred or too turned away to identify is
+            # not evidence of anybody. Recording it produces false strangers.
+            track = tracks.get(track_id)
+            if not self._quality_ok(track):
+                self.low_quality_skipped += 1
+                # Record WHY, not just that it happened. "654 faces rejected"
+                # says nothing actionable; "all of them under 80px" says the
+                # camera is too far away and the gate is doing its job.
+                report = self._quality_report(track)
+                gate = self.state.config.monitoring
+                failed = []
+                last = getattr(track, "last_face", None)
+                det_score = float(getattr(last, "det_score", 0.0) or 0.0)
+                if report is None:
+                    failed = ["no face"]
+                else:
+                    if det_score < gate.min_det_score:
+                        failed.append(f"low confidence (<{gate.min_det_score})")
+                    if report.face_width_px < gate.min_face_size_px:
+                        failed.append(f"too small (<{gate.min_face_size_px}px)")
+                    if report.blur_score < gate.blur_threshold:
+                        failed.append(f"too blurry (<{gate.blur_threshold})")
+                    if abs(report.yaw_deg) > gate.max_yaw_deg:
+                        failed.append(f"too turned (>{gate.max_yaw_deg} deg)")
+                    if abs(report.pitch_deg) > gate.max_pitch_deg:
+                        failed.append(f"too tilted (>{gate.max_pitch_deg} deg)")
+                for reason in failed or ["unknown"]:
+                    self.low_quality_reasons[reason] = self.low_quality_reasons.get(reason, 0) + 1
+                if report is not None:
+                    self.last_rejected = {
+                        "det_score": round(det_score, 3),
+                        "face_width_px": getattr(report, "face_width_px", None),
+                        "blur_score": round(getattr(report, "blur_score", 0.0), 1),
+                        "yaw_deg": round(getattr(report, "yaw_deg", 0.0), 1),
+                        "pitch_deg": round(getattr(report, "pitch_deg", 0.0), 1),
+                        "reasons": list(getattr(report, "reasons", []) or []),
+                    }
+                continue
             if not self.policy.should_report(track_id, decision, result.person_id, now):
                 continue
             payload = {
@@ -194,16 +320,34 @@ class MonitorWorker:
                 if embedding is not None:
                     payload["strangerKey"] = STRANGERS.key_for(embedding)
 
-            # Keep the face behind the row: a sighting nobody can look at is
-            # of little use to an operator. A failed snapshot is not allowed
-            # to cost the detection.
+            # What gets kept as evidence.
+            #
+            # The face crop stays, because a list of sightings needs a
+            # thumbnail. But on these cameras a face is about twenty pixels
+            # across, so the crop alone proves nothing. The full frame is
+            # what shows who came in, what they wore and which door they
+            # used, and a short clip shows whether they entered or turned
+            # around. Neither is allowed to cost the detection.
             box = boxes.get(track_id)
-            if box is not None and self._last_frame is not None:
-                saved = snapshots.save(self.state.config.data_dir, self._last_frame,
+            frame = self._last_frame
+            if box is not None and frame is not None:
+                saved = snapshots.save(self.state.config.data_dir, frame,
                                        box, self.camera_id, track_id)
                 if saved:
                     payload["snapshot"] = saved
                     self.snapshots_saved += 1
+
+                # One timestamp for both, so the clip is findable from the
+                # still: it is written seconds later, long after the
+                # detection has been posted, so its path can never be part
+                # of that message. Same name, different extension.
+                moment = time.time()
+                still = evidence.save_still(self.state.config.data_dir, frame,
+                                            self.camera_id, track_id, box, moment)
+                if still:
+                    payload["evidenceStill"] = still
+
+                self._start_clip(track_id, moment)
             accepted, reason = post_detection(payload)
             if accepted:
                 self.reported += 1
@@ -226,12 +370,14 @@ class MonitorRegistry:
         self._monitors: dict[str, MonitorWorker] = {}
         self._lock = threading.Lock()
 
-    def start(self, camera_id: str, source: str, zone: int = 0) -> dict:
+    def start(self, camera_id: str, source: str, zone: int = 0, rotate: int = 0) -> dict:
         with self._lock:
             existing = self._monitors.get(camera_id)
             if existing and existing.alive:
+                # Keep the angle current even when the monitor is already up.
+                self.state.hub_for(source, rotate)
                 return existing.status()
-            hub = self.state.hub_for(source)
+            hub = self.state.hub_for(source, rotate)
             worker = MonitorWorker(self.state, hub, camera_id, zone)
             self._monitors[camera_id] = worker
             log.info("monitor %s started on %s", camera_id, hub.label)

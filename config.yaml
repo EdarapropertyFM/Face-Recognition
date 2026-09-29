@@ -12,6 +12,33 @@ quality:
   max_yaw_deg: 35.0
   max_pitch_deg: 35.0
 
+# A second, looser gate for continuous monitoring.
+#
+# The strict gate above decides what may ENROL someone: a bad template
+# defines a person's identity for good, so it demands a large, sharp,
+# near-frontal face. Applying the same bar to watching a corridor threw away
+# every real visitor -- 654 in one session -- because CCTV faces are small,
+# side-on and motion-blurred by nature.
+#
+# Logging a sighting is a weaker claim than identifying someone. "A person
+# was here, and here is their photo" is useful to an operator even when the
+# embedding is too poor to match, and a poor embedding simply fails to match
+# rather than matching wrongly. So this gate keeps only enough of a floor to
+# exclude the tiny detector false positives (a patch of wall came in at 27px)
+# while letting real people through.
+#
+# Size is a weak filter on a wide-angle camera. Measured on this site: a real
+# face at the door was 20px across, while a detector false positive on a bare
+# wall was 27px -- the junk was LARGER than the person. So the size floor is
+# set just high enough to drop noise, and detector confidence does the real
+# work of separating a face from a texture.
+monitoring:
+  min_face_size_px: 18
+  min_det_score: 0.60         # a wall scrapes past 0.5; a good face scores 0.85
+  blur_threshold: 15.0
+  max_yaw_deg: 80.0
+  max_pitch_deg: 60.0
+
 matching:
   # STARTING POINTS ONLY. Phase 7 replaces these with measured values.
   # Cosine similarity on L2-normalised ArcFace embeddings.

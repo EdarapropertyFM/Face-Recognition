@@ -46,6 +46,21 @@ export class DetectionsController {
     response.send(image);
   }
 
+  /** Full-frame still or clip for a sighting, proxied from the AI. */
+  @Get('evidence/*path')
+  @Public()
+  async evidence(
+    @Param('path') path: string | string[],
+    @Query('token') token: string,
+    @Res() response: Response,
+  ) {
+    const rel = Array.isArray(path) ? path.join('/') : path;
+    const file = await this.detectionsService.evidence(rel, token || '');
+    response.setHeader('Content-Type', file.type);
+    response.setHeader('Cache-Control', 'private, max-age=86400');
+    response.send(file.body);
+  }
+
   @Get('subjects')
   subjects() {
     return this.detectionsService.subjects();

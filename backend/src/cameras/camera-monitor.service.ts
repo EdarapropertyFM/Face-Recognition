@@ -75,7 +75,8 @@ export class CameraMonitorService implements OnModuleInit, OnModuleDestroy {
       for (const camera of wanted) {
         if (activeIds.has(camera.id) || !camera.rtspUrlEncrypted) continue;
         try {
-          await this.ai.startMonitor(camera.id, this.cipher.decrypt(camera.rtspUrlEncrypted), camera.zone);
+          await this.ai.startMonitor(camera.id, this.cipher.decrypt(camera.rtspUrlEncrypted),
+                                     camera.zone, camera.rotation ?? 0);
           started.push(camera.id);
         } catch (error) {
           this.log.warn(`could not watch ${camera.id}: ${error instanceof Error ? error.message : error}`);

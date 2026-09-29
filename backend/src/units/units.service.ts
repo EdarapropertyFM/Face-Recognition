@@ -18,6 +18,8 @@ export type SearchScope = (typeof SEARCH_SCOPES)[number];
 
 export interface UnitRow {
   unit: string;
+  /** Registered owner from the property register; null when not recorded. */
+  owner: string | null;
   people: number;
   enrollments: number;
   approved: number;
@@ -113,10 +115,23 @@ export class UnitsService {
     }
 
     // Admin detail: display name and the real unit count behind the coverage bar.
+    const ownersByBuilding = new Map<string, Record<string, string>>();
     for (const setting of settings) {
       const row = ensure(setting.project, setting.code);
       if (setting.name?.length) row.name = setting.name;
       row.totalUnits = setting.totalUnits ?? 0;
+      ownersByBuilding.set(`${setting.project}${SEP}${setting.code}`, setting.unitOwners ?? {});
+
+      // A registered unit is part of the building even before anybody has
+      // enrolled from it: management knows who owns it, and an empty
+      // building would otherwise look like an unconfigured one.
+      for (const code of unitCodesFor(setting.code, setting.totalUnits ?? 0, setting.unitCodes ?? [])) {
+        if (row.units.some((u) => u.unit === code)) continue;
+        row.units.push({
+          unit: code, owner: (setting.unitOwners ?? {})[code] ?? null,
+          people: 0, enrollments: 0, approved: 0, pending: 0, faces: 0,
+        });
+      }
     }
 
     // Units and people come from enrolments.
@@ -131,7 +146,10 @@ export class UnitsService {
         const id = unitKey(residence);
         let unitRow = perUnit.get(id);
         if (!unitRow) {
-          unitRow = { unit: residence.unit, people: 0, enrollments: 0, approved: 0, pending: 0, faces: 0 };
+          unitRow = {
+            unit: residence.unit, owner: null,
+            people: 0, enrollments: 0, approved: 0, pending: 0, faces: 0,
+          };
           perUnit.set(id, unitRow);
           row.units.push(unitRow);
         }
@@ -169,8 +187,12 @@ export class UnitsService {
     }
 
     for (const row of buildings.values()) {
+      const owners = ownersByBuilding.get(`${row.project}${SEP}${row.code}`) ?? {};
+      for (const unit of row.units) unit.owner = unit.owner ?? owners[unit.unit] ?? null;
       row.units.sort((a, b) => a.unit.localeCompare(b.unit, undefined, { numeric: true }));
-      row.occupiedUnits = row.units.length;
+      // Occupied means somebody has actually registered from it. Counting
+      // every unit on the register would show 100% coverage on day one.
+      row.occupiedUnits = row.units.filter((unit) => unit.enrollments > 0).length;
       row.coverage = row.totalUnits > 0
         ? Math.min(100, Math.round((row.occupiedUnits / row.totalUnits) * 100))
         : null;
@@ -273,10 +295,13 @@ export class UnitsService {
   async upsertSetting(project: string, code: string, dto: UpdateBuildingSettingDto) {
     const existing = await this.settings.findOne({ where: { project, code } });
     const row = existing
-      ?? this.settings.create({ project, code, name: [code, code], totalUnits: 0, unitCodes: [] });
+      ?? this.settings.create({
+        project, code, name: [code, code], totalUnits: 0, unitCodes: [], unitOwners: {},
+      });
     if (dto.name !== undefined) row.name = dto.name;
     if (dto.totalUnits !== undefined) row.totalUnits = dto.totalUnits;
     if (dto.unitCodes !== undefined) row.unitCodes = dto.unitCodes;
+    if (dto.unitOwners !== undefined) row.unitOwners = dto.unitOwners;
     return this.settings.save(row);
   }
 
@@ -418,6 +443,7 @@ export class UnitsService {
       name: dto.name?.length ? dto.name : [code, code],
       totalUnits: dto.totalUnits ?? 0,
       unitCodes: dto.unitCodes ?? [],
+      unitOwners: dto.unitOwners ?? {},
     }));
   }
 

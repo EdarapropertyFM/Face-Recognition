@@ -13,6 +13,8 @@ export class CreateDetectionDto {
   @IsOptional() @IsString() when?: string;
   /** Path of the saved face image, relative to the AI snapshot directory. */
   @IsOptional() @IsString() snapshot?: string;
+  /** Full-frame evidence image, relative to the AI evidence directory. */
+  @IsOptional() @IsString() evidenceStill?: string;
   /** Face-derived stranger identity from the AI; preferred over the track id. */
   @IsOptional() @IsString() strangerKey?: string;
 }

@@ -1,4 +1,6 @@
-import { ArrayMaxSize, IsArray, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import {
+  ArrayMaxSize, IsArray, IsInt, IsObject, IsOptional, IsString, Max, MaxLength, Min,
+} from 'class-validator';
 
 export class UpdateBuildingSettingDto {
   /** [English, Arabic] display name. */
@@ -12,4 +14,8 @@ export class UpdateBuildingSettingDto {
   /** Exact unit codes offered at enrolment. Empty = generate from totalUnits. */
   @IsOptional() @IsArray() @ArrayMaxSize(10000) @IsString({ each: true }) @MaxLength(64, { each: true })
   unitCodes?: string[];
+
+  /** Registered owner name per unit code. Names only, no contact details. */
+  @IsOptional() @IsObject()
+  unitOwners?: Record<string, string>;
 }

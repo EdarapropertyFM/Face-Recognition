@@ -2,9 +2,15 @@ import { nationalIdError } from './nationalId';
 import { MAX_AGE, requiresNationalId } from './household';
 
 export const EMPTY_ENROLLMENT_DRAFT = Object.freeze({
+  // 'owner' or 'tenant', chosen on the first screen; '' until chosen.
+  residentType: '',
   building: '', unit: '', name: '', age: '', nid: '', mobile: '', email: '', idDocName: '',
   // Compressed data URL of the ID card, so a resumed draft is still complete.
-  idDocImage: '', family: [], cars: [], residences: [],
+  idDocImage: '',
+  // Tenants only: one compressed photo per rental agreement page,
+  // [{ id, name, image }], so a resumed draft still has them.
+  leasePages: [],
+  family: [], cars: [], residences: [],
 });
 
 /** A resident may hold several units, in different buildings or projects. */
@@ -52,7 +58,13 @@ export function residenceProblems(residences, projects) {
 export function sanitizeStoredDraft(value) {
   if (!value || typeof value !== 'object') return { ...EMPTY_ENROLLMENT_DRAFT };
   return Object.keys(EMPTY_ENROLLMENT_DRAFT).reduce((draft, key) => {
-    if (key === 'family' || key === 'cars') {
+    if (key === 'leasePages') {
+      draft[key] = Array.isArray(value[key])
+        ? value[key].filter((page) => page && typeof page.image === 'string' && page.image.startsWith('data:image/'))
+          .map((page) => ({ id: page.id || crypto.randomUUID(), name: typeof page.name === 'string' ? page.name : '', image: page.image }))
+        : [];
+    }
+    else if (key === 'family' || key === 'cars') {
       draft[key] = Array.isArray(value[key])
         ? value[key].filter((entry) => entry && typeof entry === 'object').map((entry) => ({ ...entry, id: entry.id || crypto.randomUUID() }))
         : [];
@@ -73,6 +85,8 @@ export function sanitizeStoredDraft(value) {
     return draft;
   }, {});
 }
+
+export const MAX_LEASE_PAGES = 8;
 
 export function validateResidenceDraft(draft, identityDocument, projects) {
   const errors = {};
@@ -101,5 +115,9 @@ export function validateResidenceDraft(draft, identityDocument, projects) {
   }
   else if (!['image/jpeg', 'image/png', 'image/webp'].includes(identityDocument.type)) errors.idDoc = 'Use a JPG, PNG or WebP image.';
   else if (identityDocument.size > 5 * 1024 * 1024) errors.idDoc = 'The image must be 5 MB or smaller.';
+
+  if (draft.residentType === 'tenant' && !draft.leasePages?.length) {
+    errors.leaseDoc = 'Upload your rental agreement (one photo per page).';
+  }
   return errors;
 }

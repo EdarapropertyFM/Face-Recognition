@@ -38,10 +38,10 @@ export class AiGatewayService {
     return body.monitors ?? [];
   }
 
-  startMonitor(cameraId: string, source: string, zone: number) {
+  startMonitor(cameraId: string, source: string, zone: number, rotate = 0) {
     return this.request('/monitor', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ camera_id: cameraId, source, zone }),
+      body: JSON.stringify({ camera_id: cameraId, source, zone, rotate }),
     }, 20000);
   }
 
@@ -55,8 +55,8 @@ export class AiGatewayService {
     }, 15000) as Promise<{ ok: boolean; width: number; height: number; fps: number; seconds: number; error?: string }>;
   }
 
-  streamCamera(source: string, signal: AbortSignal) {
-    return fetch(`${this.baseUrl}/stream?source=${encodeURIComponent(source)}`, {
+  streamCamera(source: string, signal: AbortSignal, rotate = 0) {
+    return fetch(`${this.baseUrl}/stream?source=${encodeURIComponent(source)}&rotate=${rotate}`, {
       signal, headers: { Accept: 'multipart/x-mixed-replace' },
     });
   }

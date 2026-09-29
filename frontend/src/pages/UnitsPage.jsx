@@ -1,375 +1,167 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
-import {
-  Building2, Camera, ChevronDown, ChevronRight, CheckCircle, Home, Layers,
-  LoaderCircle, Search, ShieldAlert, Users, X,
-} from 'lucide-react';
+import { Building2, ChevronDown, ChevronRight, Home, Info, Layers, LoaderCircle, Search, UserCheck, UserX, X } from 'lucide-react';
 import { apiFetch } from '../api';
-import { displayName } from '../utils/display';
-import { useAuth } from '../context/useAuth';
 
-const SCOPES = [
-  { key: 'all', label: 'units.scope_all', icon: <Search size={13} /> },
-  { key: 'projects', label: 'units.projects', icon: <Layers size={13} /> },
-  { key: 'buildings', label: 'units.buildings', icon: <Building2 size={13} /> },
-  { key: 'units', label: 'units.units', icon: <Home size={13} /> },
-];
-
-/** Shows why a row matched, rather than leaving the reader to scan for it. */
-function Highlight({ text, query }) {
-  const value = String(text ?? '');
-  const needle = query.trim();
-  const at = needle ? value.toLowerCase().indexOf(needle.toLowerCase()) : -1;
-  if (at < 0) return <>{value}</>;
-  return <>
-    {value.slice(0, at)}
-    <mark>{value.slice(at, at + needle.length)}</mark>
-    {value.slice(at + needle.length)}
-  </>;
-}
-
-/** Coverage needs a real unit count; without one there is no honest percentage. */
-function Coverage({ occupied, total, coverage, lang }) {
-  if (coverage === null || coverage === undefined) {
-    return <span className="sub" style={{ fontSize: 12 }}>{lang ? 'غير محدد' : 'Not set'}</span>;
-  }
+/**
+ * Unit register: projects -> buildings -> units and who owns each one, as
+ * supplied by the property manager. Each unit also shows whether anyone from
+ * it has registered through STMC. (Coverage stats live on the Enrollments page.)
+ */
+function Kpi({ icon, tone, label, value }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <div style={{ flex: 1, height: 6, background: 'var(--bg2)', borderRadius: 4, overflow: 'hidden', minWidth: 60 }}>
-        <div style={{ height: '100%', width: `${coverage}%`, background: 'var(--green)', transition: 'width 0.4s' }} />
+    <div className="kpi-card glass-panel" style={{ padding: 16 }}>
+      <div className="kpi-header" style={{ marginBottom: 12 }}>
+        <span className={`kpi-icon ${tone}`}>{icon}</span>
+        <div className="lab">{label}</div>
       </div>
-      <span className="mono" style={{ fontSize: 12 }}>{occupied}/{total}</span>
+      <div className="kpi-body"><div className="val a">{value}</div></div>
     </div>
   );
 }
 
-function Kpi({ icon, tone, label, value, hint }) {
+function StmcStatus({ registrations, lang }) {
+  if (!registrations?.length) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>{lang ? 'غير مسجل' : 'Not registered'}</span>;
   return (
-    <div className="kpi-card glass-panel">
-      <div className="kpi-header"><span className={`kpi-icon ${tone}`}>{icon}</span><div className="lab">{label}</div></div>
-      <div className="kpi-body"><div className={`val ${tone === 'red' ? 'r' : tone === 'green' ? 'g' : 'a'}`}>{value}</div>
-        {hint ? <div className="tr">{hint}</div> : null}</div>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+      {registrations.map((r) => (
+        <span key={r.ref} className={`tag ${r.status === 'approved' ? 'closed' : r.status === 'rejected' ? 'watch' : 'open'}`}
+          title={`${r.ref} · ${r.name}`} style={{ fontSize: 10 }}>
+          {r.residentType === 'tenant' ? (lang ? 'مستأجر' : 'Tenant') : (lang ? 'مالك' : 'Owner')} · {r.status}
+        </span>
+      ))}
     </div>
   );
 }
 
 export default function UnitsPage() {
   const { t, i18n } = useTranslation();
-  const navigate = useNavigate();
-  const { canEdit } = useAuth();
   const lang = i18n.language === 'ar' ? 1 : 0;
-
   const [query, setQuery] = useState('');
-  const [scope, setScope] = useState('all');
-  const searchRef = useRef(null);
-  const [data, setData] = useState({ projects: [], totals: null });
+  const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState('');
-  const [open, setOpen] = useState({});
-  const [selected, setSelected] = useState(null);   // { project, code }
-  const [faces, setFaces] = useState([]);
-  const [editing, setEditing] = useState(null);     // { project, code, totalUnits }
-  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [closed, setClosed] = useState({});        // collapsed project/building keys
 
-  const load = useCallback(async (search, searchScope) => {
-    setLoading(true);
-    try {
-      const response = await apiFetch(
-        `/units?q=${encodeURIComponent(search)}&scope=${encodeURIComponent(searchScope)}`);
-      if (!response.ok) throw new Error('Could not load units.');
-      const result = await response.json();
-      setData({ projects: result.projects ?? [], totals: result.totals ?? null });
-      setLoadError('');
-    } catch (error) {
-      setLoadError(error.message || 'Could not load units.');
-      setData({ projects: [], totals: null });
-    } finally { setLoading(false); }
-  }, []);
-
-  // Typing in the search box should not fire a request per keystroke.
   useEffect(() => {
-    const timer = window.setTimeout(() => load(query, scope), 250);
+    const timer = window.setTimeout(() => {
+      setLoading(true);
+      apiFetch(`/unit-registry${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ''}`)
+        .then((res) => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
+        .then((result) => { setData(result); setError(''); })
+        .catch((err) => setError(err.message))
+        .finally(() => setLoading(false));
+    }, 200);
     return () => window.clearTimeout(timer);
-  }, [load, query, scope]);
+  }, [query]);
 
-  // "/" jumps to the search box, the way every search-first page behaves.
-  useEffect(() => {
-    const onKey = (event) => {
-      if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey) return;
-      const tag = document.activeElement?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      event.preventDefault();
-      searchRef.current?.focus();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  const totals = data?.totals ?? { projects: 0, buildings: 0, units: 0, owned: 0, vacant: 0, withStmc: 0 };
+  const toggle = (key) => setClosed((c) => ({ ...c, [key]: !c[key] }));
+  const searching = Boolean(query.trim());
+  const projects = useMemo(() => data?.projects ?? [], [data]);
 
-  const clearSearch = useCallback(() => {
-    setQuery('');
-    searchRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    apiFetch('/faces')
-      .then((response) => (response.ok ? response.json() : []))
-      .then((result) => setFaces(Array.isArray(result) ? result : []))
-      .catch(() => setFaces([]));
-  }, []);
-
-  // Projects expand by default while searching, so hits are not hidden.
-  const expanded = useCallback(
-    (project) => (query.trim() ? open[project] !== false : Boolean(open[project])),
-    [open, query],
-  );
-
-  const building = useMemo(() => {
-    if (!selected) return null;
-    return data.projects.find((p) => p.project === selected.project)
-      ?.buildings.find((b) => b.code === selected.code) ?? null;
-  }, [data, selected]);
-
-  const matchCount = useMemo(
-    () => data.projects.reduce((sum, project) => sum + project.buildings.length, 0),
-    [data],
-  );
-
-  const saveTotal = async () => {
-    setSaving(true);
-    try {
-      const response = await apiFetch(`/units/${encodeURIComponent(editing.project)}/${encodeURIComponent(editing.code)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ totalUnits: Number(editing.totalUnits) || 0 }),
-      });
-      if (!response.ok) throw new Error('Could not save.');
-      setEditing(null);
-      await load(query, scope);
-    } catch (error) { setLoadError(error.message || 'Could not save.'); }
-    finally { setSaving(false); }
-  };
-
-  if (loading && !data.totals) return <div className="panel"><div className="sub"><LoaderCircle size={15} /> Loading units…</div></div>;
-
-  // ---- One building, drilled into.
-  if (building) {
-    const residents = faces.filter((f) => f.bldg === building.code && (f.type === 'known' || f.type === 'staff'));
-    return (
-      <>
-        <div className="ph">
-          <div>
-            <h1>{displayName(building, lang, building.code)}</h1>
-            <div className="sub">{building.project} · {building.code}</div>
-          </div>
-        </div>
-        <div className="toolbar" style={{ marginBottom: 16 }}>
-          <button className="btn ghost sm" onClick={() => setSelected(null)}>← {t('nav.units')}</button>
-        </div>
-        <div className="kpis">
-          <Kpi icon={<Home size={18} />} tone="blue" label={t('units.occupied')} value={building.occupiedUnits}
-            hint={building.totalUnits ? `of ${building.totalUnits}` : t('units.unknown_total')} />
-          <Kpi icon={<CheckCircle size={18} />} tone="green" label={t('units.enrolled')} value={building.people} />
-          <Kpi icon={<Camera size={18} />} tone="blue" label={t('units.cameras')} value={building.cameras}
-            hint={`${building.camerasOnline} online`} />
-          <Kpi icon={<ShieldAlert size={18} />} tone={building.strangersToday ? 'red' : 'green'}
-            label={t('units.strangers_today')} value={building.strangersToday} />
-        </div>
-        <div className="panel glass-panel" style={{ padding: 0, overflowX: 'auto', border: 'none' }}>
-          <table>
-            <thead><tr>
-              <th>{lang ? 'الوحدة' : 'Unit'}</th>
-              <th>{lang ? 'الأشخاص' : 'People'}</th>
-              <th>{lang ? 'التسجيلات' : 'Registrations'}</th>
-              <th>{lang ? 'معتمد' : 'Approved'}</th>
-              <th>{lang ? 'قيد المراجعة' : 'Pending'}</th>
-              <th>{lang ? 'وجوه في المعرض' : 'Faces in gallery'}</th>
-            </tr></thead>
-            <tbody>
-              {building.units.length ? building.units.map((unit) => (
-                <tr key={unit.unit}>
-                  <td className="mono"><b>{unit.unit}</b></td>
-                  <td>{unit.people}</td>
-                  <td>{unit.enrollments}</td>
-                  <td>{unit.approved}</td>
-                  <td>{unit.pending ? <span className="tag watch">{unit.pending}</span> : 0}</td>
-                  <td>{unit.faces}</td>
-                </tr>
-              )) : <tr><td colSpan={6} className="sub">
-                {lang ? 'لا توجد وحدات مسجّلة بعد في هذا المبنى.' : 'No units registered in this building yet.'}
-              </td></tr>}
-            </tbody>
-          </table>
-        </div>
-        <div className="panel glass-panel" style={{ marginTop: 16 }}>
-          <h3><Users size={18} color="var(--green)" /> {lang ? 'المسجّلون في هذا المبنى' : 'Enrolled in this building'}</h3>
-          <table>
-            <thead><tr><th>Face</th><th>{lang ? 'الاسم' : 'Name'}</th><th>{lang ? 'الوحدة' : 'Unit'}</th></tr></thead>
-            <tbody>
-              {residents.length ? residents.map((face) => (
-                <tr key={face.id} onClick={() => navigate('/track')} style={{ cursor: 'pointer' }}>
-                  <td className="mono" style={{ color: '#fff' }}>{face.id}</td>
-                  <td>{displayName(face, lang, face.id)}</td>
-                  <td className="mono">{face.unit || '—'}</td>
-                </tr>
-              )) : <tr><td colSpan={3} className="sub">None yet</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </>
-    );
-  }
-
-  // ---- Project / building tree.
-  const totals = data.totals ?? { projects: 0, buildings: 0, occupiedUnits: 0, people: 0, strangersToday: 0 };
   return (
     <>
       <div className="ph">
-        <div><h1>{t('nav.units')}</h1><div className="sub">{t('units.subtitle')}</div></div>
-      </div>
-
-      <div className="kpis">
-        <Kpi icon={<Layers size={18} />} tone="blue" label={t('units.projects')} value={totals.projects} />
-        <Kpi icon={<Building2 size={18} />} tone="blue" label={t('units.buildings')} value={totals.buildings} />
-        <Kpi icon={<Home size={18} />} tone="blue" label={t('units.occupied')} value={totals.occupiedUnits}
-          hint={totals.totalUnits ? `of ${totals.totalUnits}` : t('units.unknown_total')} />
-        <Kpi icon={<CheckCircle size={18} />} tone="green" label={t('units.enrolled')} value={totals.people} />
-      </div>
-
-      <div className="unit-search">
-        <div className="unit-search-field">
-          <Search size={17} className="unit-search-icon" aria-hidden="true" />
-          <input ref={searchRef} type="text" value={query} autoComplete="off" spellCheck="false"
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => { if (event.key === 'Escape') { setQuery(''); event.currentTarget.blur(); } }}
-            placeholder={t('units.search')} aria-label={t('units.search')} />
-          {loading ? <LoaderCircle size={16} className="unit-search-spinner" aria-hidden="true" /> : null}
-          {query ? (
-            <button type="button" className="unit-search-clear" onClick={clearSearch}
-              aria-label={lang ? 'Clear search' : 'Clear search'}><X size={15} /></button>
-          ) : <kbd className="unit-search-kbd" aria-hidden="true">/</kbd>}
-        </div>
-        <div className="unit-search-scopes" role="group" aria-label="Search scope">
-          {SCOPES.map((option) => (
-            <button key={option.key} type="button" aria-pressed={scope === option.key}
-              className={`unit-scope ${scope === option.key ? 'on' : ''}`}
-              onClick={() => setScope(option.key)}>
-              {option.icon} {t(option.label)}
-            </button>
-          ))}
+        <div>
+          <h1><Building2 size={24} style={{ verticalAlign: 'middle', color: 'var(--accent)', marginRight: 8, marginBottom: 4 }} />{t('nav.units')}</h1>
+          <div className="sub">{lang ? 'سجل المشروعات والمباني والوحدات وملاكها' : 'Register of projects, buildings, units and their owners'}</div>
         </div>
       </div>
 
-      {/* What the search actually found, so an empty screen is never ambiguous. */}
-      {query.trim() ? (
-        <div className="unit-search-summary">
-          {matchCount ? (
-            <span>
-              <b>{matchCount}</b> {matchCount === 1 ? t('units.match') : t('units.matches')}
-              {' '}{lang ? '\u0644\u0640' : 'for'} <mark>{query.trim()}</mark>
-              {' \u00b7 '}{totals.buildings} {t('units.buildings')} / {totals.projects} {t('units.projects')}
-            </span>
-          ) : <span>{t('units.no_results')}</span>}
-          <button type="button" className="btn ghost sm" onClick={clearSearch}>{t('units.clear')}</button>
+      {data?.demo && (
+        <div className="panel glass-panel" style={{ padding: '12px 16px', display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, borderColor: 'var(--amber)' }}>
+          <Info size={20} color="var(--amber)" style={{ flexShrink: 0 }} />
+          <div style={{ fontSize: 13 }}>
+            {lang ? 'بيانات تجريبية مؤقتة — سيتم استبدالها بسجل الوحدات الحقيقي.' : 'Sample data — this will be replaced by the real unit register once it is imported.'}
+          </div>
         </div>
-      ) : null}
+      )}
 
-      {loadError ? <div className="note" style={{ color: 'var(--red)', borderColor: 'var(--red)' }}>{loadError}</div> : null}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 16, marginBottom: 20 }}>
+        <Kpi icon={<Layers size={18} />} tone="blue" label={lang ? 'المشروعات' : 'Projects'} value={totals.projects} />
+        <Kpi icon={<Building2 size={18} />} tone="blue" label={lang ? 'المباني' : 'Buildings'} value={totals.buildings} />
+        <Kpi icon={<Home size={18} />} tone="blue" label={lang ? 'الوحدات' : 'Units'} value={totals.units} />
+        <Kpi icon={<UserCheck size={18} />} tone="green" label={lang ? 'لها مالك' : 'With owner'} value={totals.owned} />
+        <Kpi icon={<UserX size={18} />} tone="amber" label={lang ? 'بدون مالك' : 'No owner listed'} value={totals.vacant} />
+        <Kpi icon={<UserCheck size={18} />} tone="green" label={lang ? 'مسجلة في STMC' : 'Registered in STMC'} value={totals.withStmc} />
+      </div>
 
-      {!data.projects.length && !loading ? (
-        <div className="unit-empty">
-          <Search size={26} aria-hidden="true" />
-          <b>{query.trim() ? t('units.no_results') : t('units.no_projects')}</b>
-          <span>{query.trim() ? t('units.search_hint') : t('units.no_projects_hint')}</span>
-          {query.trim()
-            ? <button type="button" className="btn ghost sm" onClick={clearSearch}>{t('units.clear')}</button>
-            : null}
+      <div className="toolbar" style={{ marginBottom: 16 }}>
+        <div className="search" style={{ minWidth: 320 }}>
+          <Search size={14} />
+          <input type="text" value={query} onChange={(e) => setQuery(e.target.value)}
+            placeholder={lang ? 'بحث بالمشروع أو المبنى أو الوحدة أو اسم المالك…' : 'Search project, building, unit or owner name…'} />
+          {loading ? <LoaderCircle size={14} className="unit-search-spinner" /> : query ? (
+            <X size={14} style={{ cursor: 'pointer' }} onClick={() => setQuery('')} />
+          ) : null}
         </div>
-      ) : null}
+      </div>
 
-      {data.projects.map((project) => (
-        <section className="wall-group" key={project.project}>
-          <button type="button" className="wall-group-head" aria-expanded={expanded(project.project)}
-            onClick={() => setOpen((current) => ({ ...current, [project.project]: !expanded(project.project) }))}>
-            {expanded(project.project) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-            <Layers size={15} />
-            <b><Highlight text={project.project} query={query} /></b>
-            <span className="wall-group-meta">
-              {project.buildings.length} {t('units.buildings')} · {project.occupiedUnits} {t('units.occupied')} · {project.people} {t('units.enrolled')}
-            </span>
-          </button>
-          {expanded(project.project) && (
-            <div className="panel glass-panel" style={{ padding: 0, overflowX: 'auto', border: 'none' }}>
-              <table>
-                <thead><tr>
-                  <th>{lang ? 'المبنى' : 'Building'}</th>
-                  <th>{t('units.occupied')}</th>
-                  <th>{t('units.coverage')}</th>
-                  <th>{t('units.enrolled')}</th>
-                  <th>{t('units.cameras')}</th>
-                  <th>{t('units.strangers_today')}</th>
-                  <th />
-                </tr></thead>
-                <tbody>
-                  {project.buildings.map((row) => (
-                    <tr key={row.code} style={{ cursor: 'pointer' }}
-                      onClick={() => setSelected({ project: row.project, code: row.code })}>
-                      <td>
-                        <b><Highlight text={displayName(row, lang, row.code)} query={query} /></b>
-                        {/* Which units matched, so a hit is visible without drilling in. */}
-                        {query.trim() && row.matchedUnits ? (
-                          <div className="unit-hit-list">
-                            {row.units.slice(0, 6).map((unit) => (
-                              <span className="unit-hit" key={unit.unit}>
-                                <Highlight text={unit.unit} query={query} />
-                              </span>
-                            ))}
-                            {row.units.length > 6
-                              ? <span className="unit-hit more">+{row.units.length - 6}</span> : null}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td>{row.occupiedUnits}</td>
-                      <td onClick={(event) => event.stopPropagation()}>
-                        {editing && editing.project === row.project && editing.code === row.code ? (
-                          <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                            <input type="number" min="0" value={editing.totalUnits} style={{ width: 80 }}
-                              onChange={(event) => setEditing({ ...editing, totalUnits: event.target.value })} />
-                            <button className="btn sm" disabled={saving} onClick={saveTotal}>Save</button>
-                            <button className="btn ghost sm" onClick={() => setEditing(null)}>Cancel</button>
-                          </span>
-                        ) : (
-                          <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <Coverage occupied={row.occupiedUnits} total={row.totalUnits} coverage={row.coverage} lang={lang} />
-                            {canEdit('units') ? (
-                              <button className="btn ghost sm" title={t('units.set_total')}
-                                onClick={() => setEditing({ project: row.project, code: row.code, totalUnits: row.totalUnits })}>
-                                {t('units.set_total')}
-                              </button>
-                            ) : null}
-                          </span>
-                        )}
-                      </td>
-                      <td>{row.people}</td>
-                      <td>{row.cameras}</td>
-                      <td>{row.strangersToday
-                        ? <span className="tag watch">{row.strangersToday}</span>
-                        : <span className="tag known">0</span>}</td>
-                      <td><ChevronRight size={16} style={{ color: 'var(--muted)' }} /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {error && <div className="panel glass-panel" style={{ padding: 16, color: 'var(--red)' }}>{lang ? 'تعذر تحميل السجل: ' : 'Could not load the register: '}{error}</div>}
+      {!error && data && !projects.length && (
+        <div className="sub" style={{ padding: 20 }}>{searching ? (lang ? 'لا نتائج مطابقة.' : 'No matching units.') : (lang ? 'السجل فارغ.' : 'The register is empty.')}</div>
+      )}
+
+      {projects.map((p) => {
+        const pKey = p.project;
+        const pOpen = searching || !closed[pKey];
+        const unitCount = p.buildings.reduce((n, b) => n + b.units.length, 0);
+        return (
+          <div key={pKey} className="panel glass-panel" style={{ padding: 0, marginBottom: 16, overflow: 'hidden' }}>
+            <div onClick={() => toggle(pKey)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', cursor: 'pointer' }}>
+              {pOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+              <Layers size={18} color="var(--accent)" />
+              <b style={{ fontSize: 16 }}>{p.project}</b>
+              <span className="sub" style={{ marginInlineStart: 'auto' }}>
+                {p.buildings.length} {lang ? 'مباني' : 'buildings'} · {unitCount} {lang ? 'وحدة' : 'units'}
+              </span>
             </div>
-          )}
-        </section>
-      ))}
-
-      <div className="note" style={{ marginTop: 16 }}>
-        {lang
-          ? 'المشاريع والمباني تأتي من الكاميرات المضافة، والوحدات تأتي من تسجيلات السكان. لا توجد بيانات تجريبية هنا.'
-          : 'Projects and buildings come from the cameras you have added; units come from resident enrolments. Nothing here is demo data.'}
-      </div>
+            {pOpen && p.buildings.map((b) => {
+              const bKey = `${pKey}|${b.code}`;
+              const bOpen = searching || !closed[bKey];
+              return (
+                <div key={bKey} style={{ borderTop: '1px solid var(--glass-border)' }}>
+                  <div onClick={() => toggle(bKey)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px 10px 40px', cursor: 'pointer' }}>
+                    {bOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                    <Building2 size={16} color="var(--accent)" />
+                    <b>{b.code}</b>
+                    <span className="sub" style={{ marginInlineStart: 'auto' }}>
+                      {b.units.length} {lang ? 'وحدة' : 'units'} · {b.units.filter((u) => u.ownerName).length} {lang ? 'لها مالك' : 'with owner'}
+                    </span>
+                  </div>
+                  {bOpen && (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th style={{ paddingInlineStart: 64 }}>{lang ? 'الوحدة' : 'Unit'}</th>
+                            <th>{lang ? 'الدور' : 'Floor'}</th>
+                            <th>{lang ? 'اسم المالك' : 'Owner name'}</th>
+                            <th>{lang ? 'هاتف المالك' : 'Owner phone'}</th>
+                            <th>{lang ? 'التسجيل في STMC' : 'STMC registration'}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {b.units.map((u) => (
+                            <tr key={u.id}>
+                              <td className="mono" style={{ paddingInlineStart: 64, color: '#fff' }}>{u.unit}</td>
+                              <td>{u.floor || '—'}</td>
+                              <td>{u.ownerName ? <b>{u.ownerName}</b> : <span style={{ color: 'var(--muted)' }}>{lang ? 'غير محدد' : 'No owner listed'}</span>}</td>
+                              <td className="mono" style={{ color: 'var(--muted)' }}>{u.ownerPhone || '—'}</td>
+                              <td><StmcStatus registrations={u.registrations} lang={lang} /></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
     </>
   );
 }

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronRight, Expand, HardDrive, LoaderCircle, Monitor, Radio, RefreshCw, VideoOff } from 'lucide-react';
+import { ChevronDown, ChevronRight, Expand, HardDrive, LoaderCircle, Monitor, Radio, RefreshCw, RotateCw, VideoOff } from 'lucide-react';
 import { ZONES } from '../store';
 import { apiFetch, streamUrl as streamEndpoint } from '../api';
 import { useRealtime } from '../hooks/useRealtime';
 import { useOnScreen, usePageVisible, useStreamSlot } from '../hooks/useStreamSlot';
 import { zoneLabel } from '../utils/display';
+import { nextAngle } from '../utils/cameraRotation';
 
 // A 1x1 transparent GIF. Pointing an <img> at this is how you make the
 // browser let go of an MJPEG stream (see the teardown effect below).
@@ -18,6 +19,12 @@ function CameraFeed({ camera, lang, refreshKey }) {
   const tileRef = useRef(null);
   const onScreen = useOnScreen(tileRef);
   const [failed, setFailed] = useState(false);
+  // How a camera is mounted is a fact about the camera, not a preference of
+  // whoever is looking, so the angle lives on the camera record and the AI
+  // applies it before recognition runs. Mirrored in state so the tile reacts
+  // immediately instead of waiting for the camera list to reload.
+  const [rotation, setRotation] = useState(camera.rotation ?? 0);
+  useEffect(() => { setRotation(camera.rotation ?? 0); }, [camera.rotation]);
   // Mirrors streamUrl for the effect below, which must read it without
   // depending on it.
   const streamUrlRef = useRef('');
@@ -130,6 +137,26 @@ function CameraFeed({ camera, lang, refreshKey }) {
     event.currentTarget.closest('.cam')?.requestFullscreen?.();
   };
 
+  const rotate = async (event) => {
+    event.stopPropagation();
+    const next = nextAngle(rotation);
+    setRotation(next);
+    try {
+      const response = await apiFetch(`/cameras/${camera.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rotation: next }),
+      });
+      if (!response.ok) throw new Error('rejected');
+      // The AI turns the frames themselves, so the stream must be reopened
+      // for the new angle to take effect.
+      setStreamUrl('');
+      requestStream();
+    } catch {
+      setRotation(rotation);          // put it back; the camera did not change
+    }
+  };
+
   return <div className="cam real-feed" ref={tileRef}>
     <div className="feed">
       {/* Always rendered: removing it would strand the open MJPEG connection,
@@ -151,7 +178,17 @@ function CameraFeed({ camera, lang, refreshKey }) {
     </div>
     <div className="lbl"><Radio size={12} /> {camera.displayName || camera.id} · {location}</div>
     <div className={`live ${state === 'live' ? '' : 'offline-live'}`}><b />{state === 'live' ? 'LIVE AI' : state.toUpperCase()}</div>
-    {state === 'live' && <button className="feed-expand" title="Fullscreen" onClick={fullscreen}><Expand size={16} /></button>}
+    {state === 'live' && <div className="feed-tools">
+      <button className="feed-tool" onClick={rotate}
+        title={lang ? `تدوير الصورة (${rotation}°)` : `Rotate view (${rotation}°)`}
+        aria-label={lang ? 'تدوير الصورة' : 'Rotate view'}>
+        <RotateCw size={15} />
+      </button>
+      <button className="feed-tool" onClick={fullscreen}
+        title={lang ? 'ملء الشاشة' : 'Fullscreen'} aria-label={lang ? 'ملء الشاشة' : 'Fullscreen'}>
+        <Expand size={15} />
+      </button>
+    </div>}
   </div>;
 }
 

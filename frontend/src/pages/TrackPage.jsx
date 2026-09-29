@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
-import { Download, Eye, Map, MapPin, Clock, Timer, Route, ShieldAlert, UserX, User, Building2, Cctv, CalendarDays } from 'lucide-react';
+import { Download, Eye, Map, MapPin, Clock, Timer, Route, ShieldAlert, UserX, User, Building2, Cctv, CalendarDays, ImageOff, Play } from 'lucide-react';
 import { apiFetch } from '../api';
 import { displayName } from '../utils/display';
 import { formatWhen } from './AlertsPage';
 import { DEMO, demoHistory, demoSubjects } from '../demo';
-import { snapshotUrl } from '../utils/snapshot';
+import { evidenceUrl, snapshotUrl } from '../utils/snapshot';
+import SightingViewer from '../components/SightingViewer';
 
 const where = (d) => `${d.camera?.building || '—'} · ${d.camera?.name || d.cam}`;
 
@@ -60,6 +61,7 @@ export default function TrackPage() {
   const [subjects, setSubjects] = useState([]);
   const [faceSearch, setFaceSearch] = useState('');
   const [history, setHistory] = useState(null);
+  const [viewing, setViewing] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -197,25 +199,44 @@ export default function TrackPage() {
 
           <div className="panel glass-panel">
             <h3><Route size={18} color="var(--accent)" /> {lang ? 'السجل الكامل للتحركات' : 'Full movement history'} ({evs.length})</h3>
-            <div className="tl" style={{ maxHeight: 560, overflowY: 'auto' }}>
-              {evs.length ? evs.map(e => (
-                <div key={e.id} className={`ev ${e.type}`}>
-                  {/* The face this sighting was recognised from. A row saying
-                      somebody was seen is of little use without it. */}
-                  {e.snapshot && e.snapshotToken ? (
-                    <a className="ev-shot" href={snapshotUrl(e.snapshot, e.snapshotToken)} target="_blank" rel="noreferrer"
-                      title={lang ? 'فتح الصورة' : 'Open full image'}>
-                      <img src={snapshotUrl(e.snapshot, e.snapshotToken)} alt={lang ? 'لقطة الوجه' : 'Captured face'} loading="lazy" />
-                    </a>
-                  ) : null}
-                  <b><Building2 size={12} style={{ verticalAlign: -1 }} /> {e.camera?.building || '—'}</b> · <Cctv size={12} style={{ verticalAlign: -1 }} /> {e.camera?.name || e.cam}{e.camera?.channel ? ` · CH${e.camera.channel}` : ''}
-                  <div className="mono">{formatWhen(e.when)} · conf {e.conf}%</div>
-                </div>
-              )) : <div className="sub">{lang ? 'لم يُكتشف بعد' : 'Not seen by any camera yet'}</div>}
+            {/* A list of sightings, each opening in a viewer.
+                Evidence used to sit inline: a floated thumbnail and a video
+                element per row. With twenty sightings that is twenty players
+                competing for layout and bandwidth, and they overlapped the
+                text they were meant to describe. */}
+            <div className="sight-list">
+              {evs.length ? evs.map(e => {
+                const thumb = e.evidenceStill && e.evidenceToken
+                  ? evidenceUrl(e.evidenceStill, e.evidenceToken)
+                  : (e.snapshot && e.snapshotToken ? snapshotUrl(e.snapshot, e.snapshotToken) : '');
+                return (
+                  <button type="button" className="sight" key={e.id}
+                    onClick={() => setViewing({ ...e, whenLabel: formatWhen(e.when) })}>
+                    <span className="sight-thumb">
+                      {thumb
+                        ? <img src={thumb} alt="" loading="lazy" />
+                        : <span className="sight-none"><ImageOff size={18} /></span>}
+                      {e.evidenceClip && e.evidenceClipToken
+                        ? <span className="sight-play"><Play size={12} /></span> : null}
+                    </span>
+                    <span className="sight-meta">
+                      <b><Building2 size={12} /> {e.camera?.building || '—'}</b>
+                      <span className="sight-cam">
+                        <Cctv size={12} /> {e.camera?.name || e.cam}{e.camera?.channel ? ` · CH${e.camera.channel}` : ''}
+                      </span>
+                      <span className="mono sight-when">{formatWhen(e.when)}</span>
+                    </span>
+                    <span className={`sight-conf ${e.conf >= 40 ? 'good' : 'weak'}`}>{e.conf}%</span>
+                  </button>
+                );
+              }) : <div className="sub">{lang ? 'لم يُكتشف بعد' : 'Not seen by any camera yet'}</div>}
             </div>
           </div>
         </div>
       )}
+      {viewing ? (
+        <SightingViewer sighting={viewing} lang={lang} onClose={() => setViewing(null)} />
+      ) : null}
     </>
   );
 }
