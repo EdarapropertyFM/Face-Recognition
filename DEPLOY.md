@@ -50,9 +50,13 @@ docker compose up -d --build
 ```
 
 The first build takes 10–20 minutes, mostly compiling the Python imaging
-wheels. The first start then downloads the ~600 MB face model into `./data`,
-which takes a few more minutes — the AI container is not ready until that
-finishes.
+wheels. The first start then downloads the ~280 MB face model into `./data`.
+On a slow connection that alone can take 20 minutes, and the `ai` container
+reports itself as `unhealthy` until it finishes — that is expected on a
+first run, not a fault. Watch it progress with `du -sh data/`.
+
+Nothing else waits for it: the app, the login and enrolment all work while
+the model is still downloading. Only face recognition needs it.
 
 Watch it come up:
 

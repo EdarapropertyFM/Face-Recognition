@@ -37,7 +37,11 @@ COPY scripts/ ./scripts/
 RUN mkdir -p /app/data
 
 EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
+# start-period covers the FIRST run, which downloads the ~280 MB model pack
+# before the service can answer anything. On a slow link that is well over
+# 15 minutes, and a short grace period just makes a healthy container report
+# itself unhealthy while it is working normally.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=1200s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8000/health || exit 1
 
 CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

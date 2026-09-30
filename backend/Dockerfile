@@ -18,7 +18,10 @@ COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh
+# Strip CR before making it executable. .gitattributes should already keep
+# this file LF-only, but a CRLF copy fails with a "not found" error that
+# points at the shebang rather than at the line endings, and costs an hour.
+RUN sed -i 's/$//' docker-entrypoint.sh && chmod +x docker-entrypoint.sh
 
 # Encrypted biometric assets written by SecureStorageService.
 RUN mkdir -p /app/storage
