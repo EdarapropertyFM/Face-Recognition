@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   ConflictException,
+  Logger,
   Injectable,
   NotFoundException,
   OnModuleDestroy,
@@ -12,13 +13,14 @@ import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
 import { enrollmentNote } from '../ai-gateway/enrollment-result';
 import {
   PROVISIONAL_NAME, PROVISIONAL_ROLE, PURGE_INTERVAL_MS,
-  abandonedCaptures, canReuseCapture, isDuplicateMatch,
+  abandonedCaptures, canReuseCapture, isDuplicateMatch, isReleasable,
 } from './capture-lifecycle';
 import { HouseholdMemberInput, householdProblems, normalizeMember } from './household-rules';
 
 import { Face } from '../faces/entities/face.entity';
 import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
 import { cleanResidences } from '../units/residence';
+import { conflictingUnits, ownerClaimedUnits, unitKey } from '../units/unit-lock';
 import { UpdateEnrollmentDto } from './dto/update-enrollment.dto';
 import { Enrollment } from './entities/enrollment.entity';
 import { SecureStorageService } from '../secure-storage/secure-storage.service';
@@ -29,6 +31,7 @@ type EnrollmentUpdate = UpdateEnrollmentDto & { status?: string; validationNote?
 
 @Injectable()
 export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
+  private readonly log = new Logger(EnrollmentsService.name);
   constructor(
     @InjectRepository(Enrollment) private readonly enrollRepo: Repository<Enrollment>,
     @InjectRepository(Face) private readonly faceRepo: Repository<Face>,
@@ -82,7 +85,8 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
           { faces: input.faces ?? {}, nationalIdCard: normalized.nationalIdCard }, `member-${i}-`);
         return { ...normalized, faces: images.faces, nationalIdCard: images.nationalIdCard };
       })),
-      cars: createDto.cars ?? [],
+      // Licences are documents: encrypted on disk, not left in the JSON column.
+      cars: await this.storage.storeVehicleLicences(ref, createDto.cars ?? []),
       status: 'pending',
       nationalIdNormalized: identity.nid || (null as unknown as string),
       mobileNormalized: identity.mobile || (null as unknown as string),
@@ -131,8 +135,48 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
     const problems = householdProblems(members);
     if (problems.length) throw new ConflictException(problems.join(' | '));
 
+    await this.assertUnitsFree(createDto);
     await this.rejectRecognizedFace(owner, createDto.aiPersonId);
     return this.create(createDto);
+  }
+
+  /**
+   * A unit has one owner. The enrolment form greys out the units that are
+   * already claimed, but the form is only a suggestion -- the request is what
+   * creates the record, so the rule is enforced here as well.
+   */
+  private async assertUnitsFree(createDto: CreateEnrollmentDto) {
+    const residences = cleanResidences(createDto.residences);
+    const wanted = residences.length
+      ? residences
+      : [{ project: '', building: createDto.building ?? '', unit: createDto.unit ?? '' }];
+    const rows = await this.enrollRepo.find({
+      select: { ref: true, status: true, residentType: true,
+        building: true, unit: true, residences: true, owner: true } as never,
+    });
+    const claims = rows.map((row) => ({
+      ref: row.ref,
+      status: row.status,
+      residentType: row.residentType ?? 'owner',
+      ownerName: String((row.owner as { name?: string } | undefined)?.name ?? ''),
+      residences: row.residences?.length
+        ? row.residences
+        : [{ project: '', building: row.building, unit: row.unit }],
+    }));
+    const held = ownerClaimedUnits(claims);
+    // The form sends no project on the legacy flat fields, so a claim stored
+    // without one is matched on building+unit too rather than slipping past.
+    for (const claim of claims) {
+      for (const r of claim.residences) {
+        if (r.project) held.set(unitKey('', r.building ?? '', r.unit ?? ''), claim.ownerName);
+      }
+    }
+    const clashes = conflictingUnits(held, wanted, createDto.residentType ?? 'owner');
+    if (clashes.length) {
+      throw new ConflictException(clashes.length === 1
+        ? `Unit ${clashes[0]} is already registered by its owner. If this is your unit, contact the community office.`
+        : `These units are already registered by their owners: ${clashes.join(', ')}.`);
+    }
   }
 
   async checkFaceFrame(image: string, ignoreAiPersonId?: string) {
@@ -151,7 +195,7 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
     // the applicant recognising themselves, which is expected, not a duplicate.
     const matchedId = (face as { person_id?: string }).person_id;
     if (isDuplicateMatch(face.decision, matchedId, ignoreAiPersonId)
-      && !(matchedId && await this.isAbandonedCapture(matchedId))) {
+      && !(matchedId && await this.releaseIfUnclaimed(matchedId))) {
       return {
         ok: false,
         duplicate: true,
@@ -184,8 +228,9 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
     const existing = await this.aiGateway.identify(images[0]);
     // The applicant's own earlier, never-submitted capture (page refreshed,
     // draft lost): replace it instead of refusing them as a duplicate.
-    if (existing?.personId && await this.isAbandonedCapture(existing.personId)) {
-      await this.aiGateway.deletePerson(existing.personId);
+    if (existing?.personId && await this.releaseIfUnclaimed(existing.personId)) {
+      // The gallery entry was a leftover: nothing referred to it, so it has
+      // been cleared and this person may register normally.
     } else if (existing) {
       throw new ConflictException(
         `This face is already registered${existing.name ? ` as ${existing.name}` : ''}`,
@@ -528,11 +573,49 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
     const person = (await this.aiGateway.listPersons().catch(() => []))
       .find((p) => p.person_id === aiPersonId);
     if (!person || person.role !== PROVISIONAL_ROLE) return false;
+    return this.isUnclaimed(aiPersonId);
+  }
+
+  /**
+   * Whether nothing in the system refers to this gallery person any more.
+   *
+   * A face is only meaningful because a registration, a face record or a
+   * household entry points at it. When all of those are gone the gallery
+   * entry is a leftover, and it must not be allowed to speak for a person
+   * the software has already deleted.
+   *
+   * This used to be checked only for provisional captures, so a resident
+   * who had been deleted stayed in the gallery as a full entry and blocked
+   * their own re-registration with "this face is already registered" --
+   * refusing somebody on behalf of a record that no longer exists.
+   */
+  private async isUnclaimed(aiPersonId: string): Promise<boolean> {
     const claimed = await this.enrollRepo.count({ where: { aiPersonId } })
       + await this.faceRepo.count({ where: { aiPersonId } })
       + await this.enrollRepo.createQueryBuilder('e')
         .where('e.family @> :m::jsonb', { m: JSON.stringify([{ aiPersonId }]) }).getCount();
     return claimed === 0;
+  }
+
+  /**
+   * Clear a gallery entry that nothing refers to, and say whether it went.
+   *
+   * Removing it here rather than only ignoring it means the leftover stops
+   * being a problem for everyone, not just the person standing in front of
+   * the camera right now.
+   */
+  private async releaseIfUnclaimed(aiPersonId: string): Promise<boolean> {
+    const person = (await this.aiGateway.listPersons().catch(() => []))
+      .find((candidate) => candidate.person_id === aiPersonId);
+    const claimed = !(await this.isUnclaimed(aiPersonId));
+    // Age matters as much as being unreferenced. Everyone captured during a
+    // registration is unreferenced until the form is submitted, so without
+    // this a second household member with the same face would delete the
+    // first instead of being refused as a duplicate.
+    if (!isReleasable(person, claimed)) return false;
+    await this.aiGateway.deletePerson(aiPersonId).catch(() => undefined);
+    this.log.warn(`released orphaned gallery person ${aiPersonId}`);
+    return true;
   }
 
   private async faceImages(enrollment: Enrollment) {
@@ -579,6 +662,7 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
       ...enrollment,
       owner: await this.storage.hydrateEnrollmentOwner(enrollment.owner),
       family: await Promise.all((enrollment.family ?? []).map((m) => this.storage.hydrateEnrollmentOwner(m ?? {}))),
+      cars: await this.storage.hydrateVehicleLicences(enrollment.cars ?? []),
     };
   }
 }

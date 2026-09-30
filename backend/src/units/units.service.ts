@@ -10,6 +10,7 @@ import { Project } from './entities/project.entity';
 import { CreateBuildingDto, CreateProjectDto, UpdateProjectDto } from './dto/project.dto';
 import { UpdateBuildingSettingDto } from './dto/update-building-setting.dto';
 import { Residence, matches, residencesOf, unitCodesFor } from './residence';
+import { ownerClaimedUnits, unitKey } from './unit-lock';
 import { UnitRecord } from './entities/unit-record.entity';
 
 export const UNASSIGNED = 'Unassigned';
@@ -271,10 +272,19 @@ export class UnitsService {
    * What the enrolment form offers. Residents pick a project, then a building,
    * then a unit, so none of the three can be mistyped.
    */
+  /**
+   * The dropdowns for the public enrolment form.
+   *
+   * Each unit carries whether an owner has already claimed it, so the form
+   * can grey it out instead of letting a second person register as the owner
+   * of a property that is already spoken for.
+   */
   async enrollmentOptions() {
-    const [{ projects }, settings, registered] = await Promise.all([
+    const [{ projects }, settings, registered, claims] = await Promise.all([
       this.tree(), this.settings.find(), this.register.find({ select: { project: true, building: true, unit: true } }),
+      this.ownerClaims(),
     ]);
+    const held = ownerClaimedUnits(claims);
     const byKey = new Map(settings.map((row) => [`${row.project}${SEP}${row.code}`, row]));
     // Units from the unit register (Units page), in natural order: 4.6C-2 before 4.6C-10.
     const fromRegister = new Map<string, string[]>();
@@ -294,13 +304,48 @@ export class UnitsService {
             return {
               code: building.code,
               name: building.name,
-              units: fromRegister.get(`${project.project}${SEP}${building.code}`)
-                ?? unitCodesFor(building.code, setting?.totalUnits ?? 0, setting?.unitCodes ?? []),
+              units: (fromRegister.get(`${project.project}${SEP}${building.code}`)
+                ?? unitCodesFor(building.code, setting?.totalUnits ?? 0, setting?.unitCodes ?? []))
+                // Only the flag, never the registered owner's name: this
+                // endpoint is public, and anyone could otherwise read off who
+                // lives in which unit by opening the registration form.
+                .map((code) => ({
+                  code,
+                  ownerRegistered: held.has(unitKey(project.project, building.code, code)),
+                })),
             };
           })
           .filter((building) => building.units.length),
       }))
       .filter((project) => project.buildings.length);
+  }
+
+  /** Every enrolment that could be holding a unit, for the lock rule. */
+  private async ownerClaims() {
+    const [rows, register] = await Promise.all([
+      this.enrollments.find({
+        select: { ref: true, status: true, residentType: true,
+          building: true, unit: true, residences: true, owner: true } as never,
+      }),
+      this.register.find({ select: { project: true, building: true, unit: true } }),
+    ]);
+    // An enrolment row has no project column: only the residences list names
+    // one. Older rows predate that list, so their project is recovered from
+    // the unit register, which is the only place building+unit is unique.
+    const projectOf = new Map(register.map((r) => [`${r.building}${SEP}${r.unit}`, r.project]));
+    return rows.map((row) => ({
+      ref: row.ref,
+      status: row.status,
+      residentType: row.residentType ?? 'owner',
+      ownerName: String((row.owner as { name?: string } | undefined)?.name ?? ''),
+      residences: row.residences?.length
+        ? row.residences
+        : [{
+          project: projectOf.get(`${row.building}${SEP}${row.unit}`) ?? '',
+          building: row.building,
+          unit: row.unit,
+        }],
+    }));
   }
 
   /** Admin: set the real unit count, the unit codes and the display name. */

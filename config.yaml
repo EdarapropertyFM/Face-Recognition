@@ -8,7 +8,11 @@ detection:
   min_face_size_px: 80        # reject smaller — embeddings unreliable
 
 quality:
-  blur_threshold: 60.0        # variance of Laplacian; tune in Phase 7
+  # Variance of the Laplacian. A sharp reference photo measures ~90 through
+  # the browser capture path, but the metric falls with low contrast as well
+  # as with real blur, so a perfectly focused face against a bright wall can
+  # read in the 40s. At 60 those people could not register at all.
+  blur_threshold: 45.0
   max_yaw_deg: 35.0
   max_pitch_deg: 35.0
 

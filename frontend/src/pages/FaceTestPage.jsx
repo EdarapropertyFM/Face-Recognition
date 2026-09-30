@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Camera, ScanFace, Square, RefreshCw, Activity, CheckCircle, XCircle } from 'lucide-react';
 import { apiFetch } from '../api';
+import { displayName } from '../utils/display';
+import { useTranslation } from 'react-i18next';
 
 export default function FaceTestPage() {
+  const { i18n } = useTranslation();
+  const lang = i18n.language === 'ar' ? 1 : 0;
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const [active, setActive] = useState(false);
@@ -55,6 +59,7 @@ export default function FaceTestPage() {
   };
 
   const quality = result?.quality;
+  const identity = result?.identity ?? null;
   return <>
     <div className="ph"><div><h1><Activity size={24} style={{ verticalAlign: 'middle', color: 'var(--accent)', marginRight: 8, marginBottom: 4 }} />Face Test</h1><div className="sub">Admin-only live test — does not enroll or alter any face data.</div></div></div>
     <div className="two" style={{ alignItems: 'start' }}>
@@ -71,8 +76,22 @@ export default function FaceTestPage() {
       <div className="panel glass-panel">
         <h3 style={{ marginTop: 0, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}><ScanFace size={18} color="var(--accent)" /> AI result</h3>
         {!result ? <div className="sub" style={{ opacity: 0.6, fontSize: 13, lineHeight: 1.5 }}>Capture a frame to see identity, similarity and image quality details.</div> : <div className="kv">
-          <div><span>Decision</span><b style={{ color: result.decision === 'match' ? 'var(--green)' : 'var(--amber)' }}>{result.decision.toUpperCase()}</b></div>
-          <div><span>Person</span><b style={{ color: '#fff', fontSize: 16 }}>{result.name || 'Unknown'}</b></div>
+          {/* 'Decision' is how sure the match is, not who the person is.
+              Labelled explicitly because CONFIRMED / TENTATIVE sitting above
+              a name reads like a role. */}
+          <div><span>Match confidence</span><b style={{ color: result.decision === 'confirmed' ? 'var(--green)' : 'var(--amber)' }}>
+            {result.decision === 'confirmed' ? 'CONFIRMED' : result.decision === 'tentative' ? 'UNCERTAIN' : 'NO MATCH'}
+          </b></div>
+          <div><span>Person</span><b style={{ color: '#fff', fontSize: 16 }}>{identity ? displayName(identity, lang, result.name) : (result.name || 'Unknown')}</b></div>
+          {/* Who they are in the register: the AI only knows the name it was
+              enrolled under, not whether that person is an owner, a tenant
+              or somebody's son. */}
+          <div><span>Role</span><b style={{ color: identity ? 'var(--accent)' : 'var(--muted)' }}>
+            {identity ? (displayName({ name: identity.role }, lang, '—') || '—') : 'Not in the register'}
+          </b></div>
+          {identity?.unit || identity?.building ? (
+            <div><span>Unit</span><b className="mono">{[identity.building, identity.unit].filter(Boolean).join(' · ')}</b></div>
+          ) : null}
           <div><span>Similarity</span><b style={{ background: 'rgba(255,255,255,0.05)', padding: '2px 8px', borderRadius: 12 }}>{Math.round((result.similarity || 0) * 100)}%</b></div>
           <div><span>Face quality</span><b style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: quality?.passed ? 'var(--green)' : 'var(--red)' }}>{quality?.passed ? <CheckCircle size={14} /> : <XCircle size={14} />} {quality?.passed ? 'Passed' : 'Needs adjustment'}</b></div>
           <div><span>Face width</span><b className="mono">{quality?.face_width_px ?? '—'} px</b></div>

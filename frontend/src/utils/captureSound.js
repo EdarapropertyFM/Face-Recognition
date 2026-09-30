@@ -1,6 +1,14 @@
 /**
- * Capture feedback: a short "pop" per photo and a rising chime when done,
- * plus a light vibration where supported (Android).
+ * Capture feedback. Three distinct sounds, because the person is looking into
+ * the camera and cannot read the screen at the moment it matters:
+ *
+ *   ready   two soft rising blips the instant the oval turns green -- "you
+ *           are in the right pose, hold still now"
+ *   shutter a short, bright camera click when the photo is actually taken
+ *   done    a rising chime after the last photo
+ *
+ * They must not be confusable: ready rises softly, the shutter is one hard
+ * transient, so "hold" is never mistaken for "taken".
  *
  * Browsers (iOS Safari especially) only allow audio after a user gesture, and
  * the photos are taken automatically, not on a tap. So one AudioContext is
@@ -23,10 +31,10 @@ export function unlockCaptureSound() {
   } catch { /* no audio support: captures still work silently */ }
 }
 
-function tone(from, to, start, length, volume = 0.35) {
+function tone(from, to, start, length, volume = 0.35, type = 'sine') {
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
-  osc.type = 'sine';
+  osc.type = type;
   osc.frequency.setValueAtTime(from, start);
   osc.frequency.exponentialRampToValueAtTime(to, start + length);
   gain.gain.setValueAtTime(volume, start);
@@ -36,21 +44,43 @@ function tone(from, to, start, length, volume = 0.35) {
   osc.stop(start + length);
 }
 
-/** One photo taken: switch to the next pose. */
-export function playCapturePop() {
-  try { navigator.vibrate?.(40); } catch { /* not supported */ }
+/**
+ * The oval has just turned green: the pose is right, hold it.
+ *
+ * Deliberately quieter and softer than the shutter -- it is an invitation to
+ * stay still, and a loud noise makes people flinch out of the pose.
+ */
+export function playHoldReady() {
+  try { navigator.vibrate?.(18); } catch { /* not supported */ }
   try {
     if (!ctx) unlockCaptureSound();
-    tone(900, 320, ctx.currentTime, 0.12);
+    const t = ctx.currentTime;
+    tone(520, 540, t, 0.07, 0.16);
+    tone(780, 800, t + 0.075, 0.09, 0.16);
   } catch { /* ignore */ }
 }
+
+/** One photo taken: a camera click, then switch to the next pose. */
+export function playShutterTick() {
+  try { navigator.vibrate?.(35); } catch { /* not supported */ }
+  try {
+    if (!ctx) unlockCaptureSound();
+    const t = ctx.currentTime;
+    // A hard transient reads as a shutter; the short body under it stops the
+    // click sounding like a glitch on small phone speakers.
+    tone(2400, 1100, t, 0.035, 0.32, 'square');
+    tone(1000, 420, t + 0.02, 0.07, 0.18);
+  } catch { /* ignore */ }
+}
+
 
 /** All photos taken. */
 export function playCaptureDone() {
   try { navigator.vibrate?.([40, 60, 40]); } catch { /* not supported */ }
   try {
     if (!ctx) unlockCaptureSound();
-    const t = ctx.currentTime;
+    // Offset so it reads as "click, then finished", not as one muddled noise.
+    const t = ctx.currentTime + 0.12;
     tone(660, 660, t, 0.12, 0.3);
     tone(880, 880, t + 0.13, 0.12, 0.3);
     tone(1320, 1320, t + 0.26, 0.22, 0.3);

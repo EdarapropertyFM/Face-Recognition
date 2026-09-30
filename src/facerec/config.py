@@ -29,7 +29,7 @@ class DetectionConfig(BaseModel):
 
 
 class QualityConfig(BaseModel):
-    blur_threshold: float = 60.0
+    blur_threshold: float = 45.0
     max_yaw_deg: float = 35.0
     max_pitch_deg: float = 35.0
 

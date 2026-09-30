@@ -2,6 +2,7 @@ import {
   ArrayMaxSize, IsArray, IsIn, IsNotEmpty, IsObject, IsOptional, IsString, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { VehicleDto } from './vehicle.dto';
 
 export class ResidenceDto {
   @IsString() @IsNotEmpty()
@@ -52,9 +53,9 @@ export class CreateEnrollmentDto {
   @IsOptional()
   family?: Record<string, unknown>[];
 
-  @IsArray()
-  @IsOptional()
-  cars?: Record<string, unknown>[];
+  @IsArray() @IsOptional() @ArrayMaxSize(10)
+  @ValidateNested({ each: true }) @Type(() => VehicleDto)
+  cars?: VehicleDto[];
 
   /** Returned by POST /enrollments/face-capture when the photos were taken. */
   @IsString()

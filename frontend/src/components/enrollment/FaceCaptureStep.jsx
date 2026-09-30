@@ -17,7 +17,7 @@ export default function FaceCaptureStep({ initialCaptures, onBack, onComplete, o
   // unlocks the capture sound on iPhone. Skipped when resuming with photos.
   const [started, setStarted] = useState(initialCaptures.length > 0);
   const {
-    videoRef, cameraState, captures, poseIndex, message, error, turn,
+    videoRef, cameraState, captures, poseIndex, message, error, turn, turnQuality,
     holdProgress, currentPose, startCamera, restartCapture,
   } = useFaceCapture({ initialCaptures, onCapturesChange, onAiPersonId, autoStart: started });
   // The preview is mirrored, so "turn left" means toward the left of the screen.
@@ -96,11 +96,28 @@ export default function FaceCaptureStep({ initialCaptures, onBack, onComplete, o
           {/* Side poses: big arrow toward the side to turn, and a turn meter. */}
           {cameraState === 'active' && side && (
             <>
-              <div className={`fc-turn-arrow fc-turn-arrow--${side} ${turn >= 1 ? 'fc-turn-arrow--ok' : ''}`} aria-hidden="true">
+              {/* The arrow points the way; once the turn is far enough it
+                  goes green, and if the head goes past the point where the
+                  far eye is lost it warns instead of staying green. */}
+              <div className={`fc-turn-arrow fc-turn-arrow--${side} fc-turn-arrow--${turnQuality}`} aria-hidden="true">
                 {side === 'left' ? <ChevronsLeft size={54} /> : <ChevronsRight size={54} />}
               </div>
-              <div className={`fc-turn-meter fc-turn-meter--${side}`} aria-label={`Head turn ${Math.round(turn * 100)}%`}>
-                <span style={{ width: `${Math.round(turn * 100)}%` }} className={turn >= 1 ? 'ok' : ''} />
+              {/* A band to land in, not a bar to max out. The old meter
+                  filled to 100% at the minimum turn and stayed there, so
+                  turning too far showed a full green bar while every frame
+                  was being refused. */}
+              <div className={`fc-turn-meter fc-turn-meter--${side} fc-turn-meter--${turnQuality}`}
+                role="meter" aria-valuemin={0} aria-valuemax={100}
+                aria-valuenow={Math.round(Math.min(turn, 1) * 100)}
+                aria-label={turnQuality === 'over' ? 'Turned too far'
+                  : turnQuality === 'good' ? 'Turn is correct' : 'Keep turning'}>
+                <span style={{ width: `${Math.round(Math.min(turn, 1) * 100)}%` }} />
+                <i className="fc-turn-target" aria-hidden="true" />
+              </div>
+              <div className={`fc-turn-label fc-turn-label--${turnQuality}`}>
+                {turnQuality === 'over' ? 'Too far — come back a little'
+                  : turnQuality === 'good' ? 'Good angle — hold it'
+                  : 'Keep turning'}
               </div>
             </>
           )}

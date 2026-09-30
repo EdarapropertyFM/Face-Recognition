@@ -605,3 +605,71 @@
   .fc-turn-arrow svg { width: 44px; height: 44px; }
   .fc-turn-meter { bottom: 64px; }
 }
+
+/* ── Turn guidance: a band to land in, not a bar to max out ──────────────
+   The meter used to fill to 100% at the minimum turn and stay there, so
+   turning past the point where the far eye is lost showed a full green bar
+   while every frame was refused. Three states make the target explicit. */
+.fc-turn-arrow--low  { color: #ffffff; }
+.fc-turn-arrow--good { color: #2ee59d; animation: none; }
+.fc-turn-arrow--over { color: #ffb020; animation: none; }
+
+.fc-turn-meter { position: relative; }
+.fc-turn-meter span { background: #ffffff; }
+.fc-turn-meter--good span { background: #2ee59d; }
+.fc-turn-meter--over span { background: #ffb020; width: 100% !important; }
+
+/* Marks where the acceptable turn begins. */
+.fc-turn-target {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  inset-inline-end: 0;
+  width: 2px;
+  background: rgba(255, 255, 255, .75);
+  border-radius: 2px;
+  pointer-events: none;
+}
+.fc-turn-meter--left .fc-turn-target { inset-inline-end: auto; inset-inline-start: 0; }
+
+.fc-turn-label {
+  position: absolute;
+  bottom: 14%;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: rgba(3, 12, 20, .78);
+  color: #ffffff;
+}
+.fc-turn-label--good { color: #2ee59d; }
+.fc-turn-label--over { color: #ffb020; }
+
+/* Household members in the review step, shown with their captured faces.
+   The last chance to notice the wrong person was captured for a member --
+   a name on its own cannot show that. */
+.review-list--people li { display: block; }
+
+.review-person { display: flex; align-items: center; gap: 12px; }
+.review-person > div:last-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+.review-person-shots { display: flex; gap: 4px; flex-shrink: 0; }
+.review-person-shots img {
+  width: 44px;
+  height: 52px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--enroll-border, rgba(0, 0, 0, .12));
+  display: block;
+}
+
+.review-person-none {
+  font-size: 11px;
+  color: #b4231f;
+  padding: 6px 8px;
+  border: 1px dashed currentColor;
+  border-radius: 6px;
+}

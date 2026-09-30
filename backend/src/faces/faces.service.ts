@@ -178,7 +178,7 @@ export class FacesService {
       aiSyncStatus: e.aiSyncStatus, validationNote: e.validationNote,
       owner: { ...e.owner, faces: resolved, nationalIdCard, rentalAgreement },
       family: (e.family ?? []).map((m) => ({ name: m?.name, relation: m?.relation, nid: m?.nid, mobile: m?.mobile })),
-      cars: e.cars ?? [],
+      cars: await this.storage.hydrateVehicleLicences(e.cars ?? []),
     };
   }
 

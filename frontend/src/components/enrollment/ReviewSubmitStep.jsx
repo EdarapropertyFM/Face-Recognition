@@ -54,11 +54,46 @@ export default function ReviewSubmitStep({ draft, faceCaptures, members, vehicle
       </ReviewSection>
 
       <ReviewSection icon={Users} title={`Household members (${members.length})`} onEdit={() => onEdit(3)}>
-        {members.length ? <ul className="review-list">{members.map((member) => <li key={member.id}><b>{member.name}</b><span>{member.relation}{member.nid ? ` · ${member.nid}` : ''}</span></li>)}</ul> : <p className="review-none">No household members.</p>}
+        {/* Their faces, not just their names: this is the last chance to
+            notice that the wrong person was captured for a member, and a
+            name alone cannot show that. */}
+        {members.length ? <ul className="review-list review-list--people">{members.map((member) => {
+          // Captures are [{ key, label, image, quality }], in pose order.
+          const shots = (member.faces ?? []).map((capture) => capture?.image).filter(Boolean);
+          return (
+            <li key={member.id}>
+              <div className="review-person">
+                <div className="review-person-shots">
+                  {shots.length
+                    ? shots.slice(0, 3).map((src, i) => <img key={i} src={src} alt="" loading="lazy" />)
+                    : <span className="review-person-none">No photos</span>}
+                </div>
+                <div>
+                  <b>{member.name}</b>
+                  <span>{member.relation}{member.nid ? ` · ${member.nid}` : ''}</span>
+                </div>
+              </div>
+            </li>
+          );
+        })}</ul> : <p className="review-none">No household members.</p>}
       </ReviewSection>
 
       <ReviewSection icon={Car} title={`Vehicles (${vehicles.length})`} onEdit={() => onEdit(4)}>
-        {vehicles.length ? <ul className="review-list">{vehicles.map((vehicle) => <li key={vehicle.id}><b>{vehicle.plate}</b><span>{vehicle.color}{vehicle.make ? ` · ${vehicle.make}` : ''}</span></li>)}</ul> : <p className="review-none">No vehicles.</p>}
+        {vehicles.length ? <ul className="review-list review-list--people">{vehicles.map((vehicle) => (
+          <li key={vehicle.id}>
+            <div className="review-person">
+              <div className="review-person-shots">
+                {vehicle.licence
+                  ? <img src={vehicle.licence} alt="Vehicle licence" loading="lazy" />
+                  : <span className="review-person-none">No licence</span>}
+              </div>
+              <div>
+                <b>{vehicle.plate}</b>
+                <span>{vehicle.color}{vehicle.make ? ` · ${vehicle.make}` : ''}</span>
+              </div>
+            </div>
+          </li>
+        ))}</ul> : <p className="review-none">No vehicles.</p>}
       </ReviewSection>
 
       <label className={`enrollment-consent ${consentError ? 'has-error' : ''}`}>

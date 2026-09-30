@@ -37,6 +37,38 @@ export class SecureStorageService {
     return stored;
   }
 
+  /**
+   * Vehicle licences, encrypted like every other document.
+   *
+   * These are registration papers carrying a name, an address and a chassis
+   * number. Left in the `cars` JSON column they would sit in the database in
+   * clear text, readable by anyone with a backup.
+   */
+  async storeVehicleLicences(ref: string, cars: unknown): Promise<unknown[]> {
+    if (!Array.isArray(cars)) return [];
+    return Promise.all(cars.map(async (car, index) => {
+      if (!car || typeof car !== 'object') return car;
+      const stored = { ...(car as Record<string, unknown>) };
+      if (typeof stored.licence === 'string' && stored.licence.startsWith('data:image/')) {
+        stored.licence = await this.writeImage(ref, `vehicle-${index + 1}-licence`, stored.licence);
+      }
+      return stored;
+    }));
+  }
+
+  /** Read the licences back for display. */
+  async hydrateVehicleLicences(cars: unknown): Promise<unknown[]> {
+    if (!Array.isArray(cars)) return [];
+    return Promise.all(cars.map(async (car) => {
+      if (!car || typeof car !== 'object') return car;
+      const hydrated = { ...(car as Record<string, unknown>) };
+      if (typeof hydrated.licence === 'string' && hydrated.licence.startsWith(ASSET_PREFIX)) {
+        hydrated.licence = await this.readDataUrl(hydrated.licence).catch(() => null);
+      }
+      return hydrated;
+    }));
+  }
+
   async hydrateEnrollmentOwner(owner: Record<string, unknown>) {
     const hydrated = structuredClone(owner);
     const faces = { ...((hydrated.faces as Record<string, unknown> | undefined) ?? {}) };

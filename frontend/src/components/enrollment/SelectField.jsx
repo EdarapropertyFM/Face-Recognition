@@ -12,7 +12,8 @@ export default function SelectField({ id, label, icon: Icon, error, required = f
         {options.map((option) => {
           const value = typeof option === 'string' ? option : option.value;
           const optionLabel = typeof option === 'string' ? option : option.label;
-          return <option value={value} key={value}>{optionLabel}</option>;
+          const disabled = typeof option === 'object' && Boolean(option.disabled);
+          return <option value={value} key={value} disabled={disabled}>{optionLabel}</option>;
         })}
       </select>
       {error ? <p className="enrollment-field-error" id={errorId}>{error}</p> : null}

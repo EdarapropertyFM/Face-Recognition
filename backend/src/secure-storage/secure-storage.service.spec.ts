@@ -50,4 +50,23 @@ describe('SecureStorageService', () => {
 
     await expect(service.hydrateEnrollmentOwner(stored)).rejects.toThrow('could not be authenticated');
   });
+
+  it('encrypts a vehicle licence and restores it, leaving the other fields alone', async () => {
+    const service = new SecureStorageService();
+    const original = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    const [stored] = await service.storeVehicleLicences('STMC-CAR', [
+      { plate: 'ABC 123', color: 'Black', licence: original },
+    ]) as Record<string, string>[];
+
+    // The raw image must never survive in the database column.
+    expect(stored.licence).toMatch(/^asset:\/\/.+\.enc$/);
+    expect(stored.plate).toBe('ABC 123');
+    const encrypted = await readFile(path.join(directory, stored.licence.slice('asset://'.length)));
+    expect(encrypted.subarray(0, 8).toString()).toBe('STMCENC1');
+
+    const [hydrated] = await service.hydrateVehicleLicences([stored]) as Record<string, string>[];
+    expect(hydrated.licence).toBe(original);
+    expect(hydrated.color).toBe('Black');
+  });
+
 });

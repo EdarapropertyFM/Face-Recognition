@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../api';
-import { playCaptureDone, playCapturePop, unlockCaptureSound } from '../utils/captureSound';
+import { playCaptureDone, playHoldReady, playShutterTick, unlockCaptureSound } from '../utils/captureSound';
 
 export const FACE_POSES = [
   { key: 'front', title: 'Look straight at the camera', short: 'Front', emoji: '😊' },
@@ -15,7 +15,7 @@ const CHECK_INTERVAL_MS = 350;
 const REQUIRED_STABLE_CHECKS = 2;        // ~0.7 s holding the correct pose — snappy
 const MIN_CAPTURE_GAP_MS = 1200;         // time to move into the next pose
 const MAX_YAW_JITTER_DEG = 10;           // head must be still, not mid-turn
-const MIN_BLUR_SCORE = 62;               // just above the AI minimum (60); webcams reach 60-75
+const MIN_BLUR_SCORE = 48;               // just above the AI minimum (45)
 
 const FRONTAL_YAW = 10;                  // front photo: really straight on
 const FRONTAL_PITCH = 20;
@@ -61,7 +61,8 @@ function frameFromVideo(video) {
 function qualityHint(quality) {
   const reason = quality?.reasons?.[0] ?? '';
   if (reason.startsWith('too small')) return 'Move closer to the camera';
-  if (reason.startsWith('too blurry')) return 'Hold still, the photo is blurry';
+  // Low contrast reads as blur, so flat lighting is the usual cause.
+  if (reason.startsWith('too blurry')) return 'Hold still — and try more even lighting';
   if (reason.startsWith('too turned')) return 'Turned too far, come back a little';
   if (reason.startsWith('too tilted')) return 'Keep your chin level';
   return reason || 'Adjust your face inside the oval';
@@ -83,11 +84,51 @@ export function turnProgress(pose, quality, captures, relaxed = false) {
   return Math.min(1, Math.abs(turn) / (relaxed ? SIDE_TURN_RELAXED : SIDE_TURN_MIN));
 }
 
+/**
+ * Whether the AI's only complaint is sharpness.
+ *
+ * Blur is measured as variance of the Laplacian, which falls with low
+ * contrast as well as with real blur -- a face against a bright wall reads
+ * as "blurry" while being perfectly in focus. That is survivable for a
+ * template; a face that is too small or turned too far is not, because the
+ * embedding would be wrong rather than merely soft.
+ */
+export function onlyBlurFailed(quality) {
+  const reasons = quality?.reasons ?? [];
+  return reasons.length > 0 && reasons.every((reason) => String(reason).startsWith('too blurry'));
+}
+
+/**
+ * Where the head currently is, relative to the turn a side photo needs.
+ *
+ * The meter alone was misleading: it filled to 100% at the minimum turn and
+ * stayed there, so somebody who kept going past the limit saw a full green
+ * bar while every frame was being refused for hiding an eye. Naming the
+ * three states lets the meter show a target to land in rather than a bar to
+ * max out.
+ *
+ *   low  - not turned far enough yet
+ *   good - inside the band that makes a usable template
+ *   over - turned so far the far eye is lost and the AI refuses the face
+ */
+export function turnState(pose, quality, captures, relaxed = false) {
+  const progress = turnProgress(pose, quality, captures, relaxed);
+  if (!quality || pose?.key === 'front') return { progress, state: 'low' };
+  if (Math.abs(quality.yaw_deg) > SIDE_YAW_MAX) return { progress, state: 'over' };
+  return { progress, state: progress >= 1 ? 'good' : 'low' };
+}
+
 function poseResult(pose, quality, captures, brightness, relaxed = false) {
-  if (!quality?.passed) return { accepted: false, hint: qualityHint(quality) };
+  // Being stuck must be able to rescue a sharpness failure, not just the
+  // front-end's own check. The AI's `passed` flag already folds blur in, so
+  // testing it unconditionally meant a soft frame was refused forever and
+  // the fallback below could never fire -- people sat on "the photo is
+  // blurry" indefinitely. Size and pose stay strict at all times.
+  const blurOnly = relaxed && onlyBlurFailed(quality);
+  if (!quality?.passed && !blurOnly) return { accepted: false, hint: qualityHint(quality) };
   // Being stuck relaxes sharpness/light and the turn a little, but a side
   // photo is never accepted without a real head turn.
-  if (!relaxed && quality.blur_score < MIN_BLUR_SCORE) return { accepted: false, hint: 'Hold still, the photo is not sharp yet' };
+  if (!relaxed && quality.blur_score < MIN_BLUR_SCORE) return { accepted: false, hint: 'Hold still — and try more even lighting' };
   if (!relaxed && brightness < 55) return { accepted: false, hint: 'Your face is too dark, face a light' };
   if (!relaxed && brightness > 230) return { accepted: false, hint: 'Too much light on your face, move away from direct light' };
 
@@ -140,6 +181,8 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
   const [holdProgress, setHoldProgress] = useState(0);
   // 0..1: how far the head is turned toward the required side (side poses).
   const [turn, setTurn] = useState(0);
+  // 'low' | 'good' | 'over' — lets the meter show a band to land in.
+  const [turnQuality, setTurnQuality] = useState('low');
 
   useEffect(() => {
     onAiPersonIdRef.current = onAiPersonId;
@@ -236,6 +279,7 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
       const relaxed = Date.now() - poseStartedAtRef.current > POSE_FALLBACK_MS;
       const evaluation = poseResult(currentPose, result.quality, capturesRef.current, brightness, relaxed);
       setTurn(turnProgress(currentPose, result.quality, capturesRef.current, relaxed));
+      setTurnQuality(turnState(currentPose, result.quality, capturesRef.current, relaxed).state);
       // A head still turning between checks gives a smeared, in-between angle.
       const yaw = result.quality?.yaw_deg;
       const moving = lastYawRef.current !== null && Math.abs(yaw - lastYawRef.current) > MAX_YAW_JITTER_DEG;
@@ -258,6 +302,9 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
         return;
       }
 
+      // First accepted check of this streak = the oval has just gone green.
+      // Sounded once per streak, not per frame, or it stutters while holding.
+      if (stableChecksRef.current === 0) playHoldReady();
       stableChecksRef.current += 1;
       setHoldProgress(stableChecksRef.current / REQUIRED_STABLE_CHECKS);
       if (stableChecksRef.current < REQUIRED_STABLE_CHECKS) return;
@@ -271,8 +318,10 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
       
       // Pop + vibration per photo, a chime on the last one, so the person
       // knows when to switch pose without reading the screen.
+      // The shutter click always fires, so every photo is confirmed; the
+      // chime is layered after it only on the final pose.
+      playShutterTick();
       if (poseIndexRef.current + 1 >= FACE_POSES.length) playCaptureDone();
-      else playCapturePop();
 
       stableChecksRef.current = 0;
       setHoldProgress(0);
@@ -374,7 +423,7 @@ export function useFaceCapture({ initialCaptures = [], onCapturesChange, onAiPer
   }, [startCamera, stopCamera, autoStart]);
 
   return {
-    videoRef, cameraState, captures, poseIndex, message, error, turn,
+    videoRef, cameraState, captures, poseIndex, message, error, turn, turnQuality,
     holdProgress, currentPose: FACE_POSES[Math.min(poseIndex, FACE_POSES.length - 1)],
     startCamera, restartCapture, stopCamera,
   };

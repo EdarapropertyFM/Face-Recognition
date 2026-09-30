@@ -19,6 +19,7 @@ export default function EnrollmentsPage() {
   const [statusFilter, setStatusFilter] = useState('pending');
   const [search, setSearch] = useState('');
   const [viewing, setViewing] = useState(null);
+  const [licence, setLicence] = useState(null);   // vehicle whose licence is shown full size
   const [tab, setTab] = useState('requests');   // 'requests' | 'coverage'
 
   const loadRecords = () => apiFetch('/enrollments')
@@ -215,6 +216,11 @@ export default function EnrollmentsPage() {
                 {rec.cars?.length ? rec.cars.map((c, ci) => (
                   <div key={ci} className="mono" style={{ background: 'var(--stat-bg)', padding: '8px 12px', borderRadius: 8, marginBottom: 6, display: 'inline-block', marginRight: 8, border: '1px solid var(--glass-border)' }}>
                     <b style={{ color: '#fff', fontSize: 13 }}>{c.plate}</b> <span style={{ opacity: 0.5, margin: '0 4px' }}>·</span> <span style={{ color: 'var(--muted)' }}>{c.color}{c.make ? ' · ' + c.make : ''}</span>
+                    {c.licence ? (
+                      <img src={c.licence} alt={`Licence for ${c.plate}`} onClick={() => setLicence(c)}
+                        style={{ display: 'block', marginTop: 6, width: 150, height: 94, objectFit: 'cover',
+                                 borderRadius: 6, border: '1px solid var(--glass-border)', cursor: 'zoom-in' }} />
+                    ) : <div className="hint" style={{ marginTop: 6 }}>{lang ? 'بدون رخصة' : 'No licence on file'}</div>}
                   </div>
                 )) : <div className="hint">None</div>}
               </div>
@@ -245,6 +251,13 @@ export default function EnrollmentsPage() {
           </div>
         </div>
       )}
+      {licence ? (
+        <div className="sv-backdrop" role="presentation" onClick={(event) => { event.stopPropagation(); setLicence(null); }}
+          style={{ zIndex: 60 }}>
+          <img src={licence.licence} alt={`Licence for ${licence.plate}`}
+            style={{ maxWidth: '92vw', maxHeight: '88vh', borderRadius: 10, boxShadow: '0 20px 60px rgba(0,0,0,0.6)' }} />
+        </div>
+      ) : null}
     </>
   );
 }

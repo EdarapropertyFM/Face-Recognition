@@ -1,23 +1,57 @@
-import { ArrowLeft, ArrowRight, Car, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Car, CheckCircle2, Plus, Trash2, Upload } from 'lucide-react';
 import { useState } from 'react';
 import EnrollmentProgress from './EnrollmentProgress';
 import FormField from './FormField';
 import SelectField from './SelectField';
+import { compressImageFile } from '../../utils/image';
 
 const COLORS = ['Black', 'White', 'Silver', 'Gray', 'Blue', 'Red', 'Green', 'Brown', 'Other'];
+const LICENCE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const LICENCE_MAX_BYTES = 5 * 1024 * 1024;
 
-function validateVehicles(vehicles) {
+export function validateVehicles(vehicles) {
   return vehicles.map((vehicle) => {
     const errors = {};
     if (vehicle.plate.trim().length < 3) errors.plate = 'Enter a valid plate number.';
     if (!COLORS.includes(vehicle.color)) errors.color = 'Choose the vehicle color.';
+    // A vehicle is only allowed through the gate because its licence was
+    // checked, so the picture of it is not optional. Adding no vehicle at
+    // all is still fine -- this only applies once one is listed.
+    if (!vehicle.licence) errors.licence = 'Upload the vehicle licence.';
     return errors;
   });
 }
 
 export default function VehiclesStep({ vehicles, onChange, onBack, onContinue }) {
   const [errors, setErrors] = useState([]);
-  const addVehicle = () => onChange([...vehicles, { id: crypto.randomUUID(), plate: '', color: '', make: '' }]);
+  const addVehicle = () => onChange([...vehicles,
+    { id: crypto.randomUUID(), plate: '', color: '', make: '', licence: '', licenceName: '' }]);
+
+  const attachLicence = async (index, file) => {
+    if (!file) return;
+    if (!LICENCE_TYPES.includes(file.type)) {
+      setErrors((current) => current.map((entry, i) =>
+        i === index ? { ...entry, licence: 'Use a JPG, PNG or WebP image.' } : entry));
+      return;
+    }
+    if (file.size > LICENCE_MAX_BYTES) {
+      setErrors((current) => current.map((entry, i) =>
+        i === index ? { ...entry, licence: 'The image must be 5 MB or smaller.' } : entry));
+      return;
+    }
+    try {
+      // Stored as a compressed data URL, like the National ID card, so a
+      // resumed draft still carries it -- a File cannot be serialised.
+      const image = await compressImageFile(file);
+      onChange(vehicles.map((vehicle, i) =>
+        i === index ? { ...vehicle, licence: image, licenceName: file.name } : vehicle));
+      setErrors((current) => current.map((entry, i) =>
+        i === index ? { ...entry, licence: undefined } : entry));
+    } catch {
+      setErrors((current) => current.map((entry, i) =>
+        i === index ? { ...entry, licence: 'Could not read that image.' } : entry));
+    }
+  };
   const updateVehicle = (index, field, value) => {
     onChange(vehicles.map((vehicle, vehicleIndex) => vehicleIndex === index ? { ...vehicle, [field]: value } : vehicle));
     setErrors((current) => current.map((entry, errorIndex) => errorIndex === index ? { ...entry, [field]: undefined } : entry));
@@ -53,6 +87,20 @@ export default function VehiclesStep({ vehicles, onChange, onBack, onContinue })
           </div>
           <FormField id={`vehicle-make-${vehicle.id}`} label="Make / model (optional)" value={vehicle.make}
             onChange={(event) => updateVehicle(index, 'make', event.target.value)} />
+
+          <div className={`enrollment-document ${errors[index]?.licence ? 'has-error' : ''}`}>
+            <span className="enrollment-document-label">Vehicle licence *</span>
+            <label htmlFor={`vehicle-licence-${vehicle.id}`}>
+              {vehicle.licence ? <CheckCircle2 size={22} aria-hidden="true" /> : <Upload size={22} aria-hidden="true" />}
+              <span>
+                <strong>{vehicle.licenceName || (vehicle.licence ? 'Licence attached' : 'Upload vehicle licence')}</strong>
+                <small>{vehicle.licence ? 'Attached to this registration.' : 'JPG, PNG or WebP · maximum 5 MB'}</small>
+              </span>
+              <input id={`vehicle-licence-${vehicle.id}`} type="file" accept="image/jpeg,image/png,image/webp"
+                onChange={(event) => attachLicence(index, event.target.files?.[0] ?? null)} />
+            </label>
+            {errors[index]?.licence ? <p className="enrollment-field-error">{errors[index].licence}</p> : null}
+          </div>
         </article>
       )) : <div className="enrollment-empty"><Car size={28} /><strong>No vehicles added</strong><span>You can continue without adding a vehicle.</span></div>}
       <button className="enrollment-add-button" type="button" onClick={addVehicle}><Plus size={18} /> Add vehicle</button>

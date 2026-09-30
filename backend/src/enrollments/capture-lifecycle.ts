@@ -51,3 +51,30 @@ export function isDuplicateMatch(
 export function canReuseCapture(person: GalleryPerson | undefined): boolean {
   return Boolean(person && person.template_count > 0);
 }
+
+
+/**
+ * Whether a gallery entry may be cleared out of the way of a new capture.
+ *
+ * Being unreferenced is not enough. Every person captured during a
+ * registration is unreferenced until the form is submitted, so a household
+ * being enrolled right now looks exactly like abandoned data. Releasing on
+ * that basis alone meant capturing a second household member with the same
+ * face DELETED the first one instead of refusing the duplicate: the son
+ * erased the owner, the daughter erased the son, and the register ended up
+ * holding one face under three names.
+ *
+ * An entry must therefore also be old enough that no wizard could still be
+ * working on it.
+ */
+export function isReleasable(
+  person: Pick<GalleryPerson, 'created_at'> | null | undefined,
+  claimed: boolean,
+  now = Date.now(),
+  ttlMs = ABANDONED_CAPTURE_TTL_MS,
+): boolean {
+  if (!person || claimed) return false;
+  const created = Date.parse(person.created_at);
+  if (Number.isNaN(created)) return false;   // unknown age: never assume stale
+  return now - created > ttlMs;
+}

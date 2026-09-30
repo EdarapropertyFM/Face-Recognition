@@ -22,9 +22,30 @@ export function buildingsInProject(projectName, projects) {
   return projects.find((project) => project.project === projectName)?.buildings ?? [];
 }
 
+/**
+ * The units of one building as `{ code, ownerRegistered }`.
+ *
+ * A unit whose owner has already registered stays in the list rather than
+ * disappearing: a resident who cannot find their own unit assumes the system
+ * is broken, whereas "already registered" tells them what actually happened.
+ */
 export function unitsInBuilding(projectName, buildingCode, projects) {
-  return buildingsInProject(projectName, projects)
+  const units = buildingsInProject(projectName, projects)
     .find((building) => building.code === buildingCode)?.units ?? [];
+  // Tolerates the older shape, where a unit was just its code.
+  return units.map((unit) => (typeof unit === 'string'
+    ? { code: unit, ownerRegistered: false }
+    : { code: unit.code, ownerRegistered: Boolean(unit.ownerRegistered) }));
+}
+
+/** The one unit in a building, or undefined if the code is not offered. */
+export function findUnit(projectName, buildingCode, unitCode, projects) {
+  return unitsInBuilding(projectName, buildingCode, projects).find((unit) => unit.code === unitCode);
+}
+
+/** An owner may not take a unit another owner has already registered. */
+export function unitLocked(unit, residentType) {
+  return Boolean(unit?.ownerRegistered) && residentType !== 'tenant';
 }
 
 /** The residences a draft holds, always at least one row for the form. */
@@ -32,7 +53,7 @@ export function draftResidences(draft) {
   return draft.residences?.length ? draft.residences : [newResidence()];
 }
 
-export function residenceProblems(residences, projects) {
+export function residenceProblems(residences, projects, residentType = 'owner') {
   const problems = {};
   const seen = new Set();
   residences.forEach((residence, index) => {
@@ -44,8 +65,13 @@ export function residenceProblems(residences, projects) {
       problems[index] = 'Choose a valid building.';
       return;
     }
-    if (!unitsInBuilding(residence.project, residence.building, projects).includes(residence.unit)) {
+    const unit = findUnit(residence.project, residence.building, residence.unit, projects);
+    if (!unit) {
       problems[index] = 'Choose a valid unit.';
+      return;
+    }
+    if (unitLocked(unit, residentType)) {
+      problems[index] = 'This unit is already registered by its owner.';
       return;
     }
     const key = `${residence.project}|${residence.building}|${residence.unit}`;
@@ -91,7 +117,7 @@ export const MAX_LEASE_PAGES = 8;
 export function validateResidenceDraft(draft, identityDocument, projects) {
   const errors = {};
   const residences = draftResidences(draft);
-  const problems = residenceProblems(residences, projects);
+  const problems = residenceProblems(residences, projects, draft.residentType);
   if (Object.keys(problems).length) errors.residences = problems;
   if (draft.name.trim().length < 3) errors.name = 'Enter your full name.';
   const years = Number(draft.age);

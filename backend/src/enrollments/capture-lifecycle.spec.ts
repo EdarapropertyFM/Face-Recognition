@@ -1,6 +1,6 @@
 import {
   ABANDONED_CAPTURE_TTL_MS, GalleryPerson, PROVISIONAL_ROLE,
-  abandonedCaptures, canReuseCapture, isDuplicateMatch,
+  abandonedCaptures, canReuseCapture, isDuplicateMatch, isReleasable,
 } from './capture-lifecycle';
 
 const NOW = Date.parse('2026-09-24T12:00:00Z');
@@ -67,5 +67,32 @@ describe('canReuseCapture', () => {
   it('re-enrolls when the capture was purged, or holds nothing', () => {
     expect(canReuseCapture(undefined)).toBe(false);
     expect(canReuseCapture(person({ template_count: 0 }))).toBe(false);
+  });
+});
+
+describe('isReleasable', () => {
+  const hour = 60 * 60 * 1000;
+  const now = 1_790_000_000_000;
+  const at = (ms: number) => ({ created_at: new Date(ms).toISOString() });
+
+  it('clears an entry nothing refers to once it is genuinely old', () => {
+    expect(isReleasable(at(now - 3 * hour), false, now)).toBe(true);
+  });
+
+  it('protects a capture made moments ago', () => {
+    // The exact failure: a household being enrolled right now is unreferenced
+    // until submit, so the son's capture deleted the owner instead of being
+    // refused as a duplicate.
+    expect(isReleasable(at(now - 30 * 1000), false, now)).toBe(false);
+    expect(isReleasable(at(now - 1.9 * hour), false, now)).toBe(false);
+  });
+
+  it('never clears an entry something still refers to', () => {
+    expect(isReleasable(at(now - 99 * hour), true, now)).toBe(false);
+  });
+
+  it('never clears an entry of unknown age', () => {
+    expect(isReleasable({ created_at: 'not a date' }, false, now)).toBe(false);
+    expect(isReleasable(null, false, now)).toBe(false);
   });
 });

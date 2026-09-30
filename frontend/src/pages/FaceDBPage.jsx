@@ -237,6 +237,7 @@ function Field({ label, children, mono }) {
 
 /** Everything known about one person: face record, the enrollment they came from, and sightings. */
 function FaceDetails({ face, lang, t, onClose }) {
+  const [licence, setLicence] = useState(null);   // vehicle whose licence is shown full size
   const e = face.enrollment;
   const owner = e?.owner;
   const member = face.member;              // set when this face is a household member, not the owner
@@ -330,6 +331,11 @@ function FaceDetails({ face, lang, t, onClose }) {
                 {e.cars.length ? e.cars.map((c, i) => (
                   <div key={i} className="mono" style={{ ...box, padding: '8px 12px', marginBottom: 6, marginRight: 8, display: 'inline-block' }}>
                     <b style={{ color: '#fff' }}>{c.plate}</b> <span style={{ opacity: 0.5 }}>·</span> <span style={{ color: 'var(--muted)' }}>{c.color}{c.make ? ' · ' + c.make : ''}</span>
+                    {c.licence ? (
+                      <img src={c.licence} alt={`Licence for ${c.plate}`} onClick={() => setLicence(c)}
+                        style={{ display: 'block', marginTop: 6, width: 150, height: 94, objectFit: 'cover',
+                                 borderRadius: 6, border: '1px solid var(--glass-border)', cursor: 'zoom-in' }} />
+                    ) : <div className="hint" style={{ marginTop: 6 }}>{lang ? 'بدون رخصة' : 'No licence on file'}</div>}
                   </div>
                 )) : <div className="hint">{lang ? 'لا يوجد' : 'None'}</div>}
               </div>
@@ -357,6 +363,13 @@ function FaceDetails({ face, lang, t, onClose }) {
         </div>
         <div className="mf"><button className="btn ghost" onClick={onClose}>{lang ? 'إغلاق' : 'Close'}</button></div>
       </div>
+      {licence ? (
+        <div className="sv-backdrop" role="presentation" onClick={(event) => { event.stopPropagation(); setLicence(null); }}
+          style={{ zIndex: 60 }}>
+          <img src={licence.licence} alt={`Licence for ${licence.plate}`}
+            style={{ maxWidth: '92vw', maxHeight: '88vh', borderRadius: 10, boxShadow: '0 20px 60px rgba(0,0,0,0.6)' }} />
+        </div>
+      ) : null}
     </div>
   );
 }

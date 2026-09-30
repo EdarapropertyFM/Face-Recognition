@@ -1,6 +1,6 @@
 import { BadGatewayException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Face } from '../faces/entities/face.entity';
 import { AiEnrollment, enrollmentFailure } from './enrollment-result';
 
@@ -26,6 +26,46 @@ export class AiGatewayService {
     return this.request('/recognize/base64', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image_b64 }),
     });
+  }
+
+  /**
+   * Recognise, then say who the person actually is here.
+   *
+   * The AI only knows the name it was enrolled under. Whether that person is
+   * an owner, a tenant or somebody's son -- and which unit they belong to --
+   * lives in the face record, and that is what an operator looking at a
+   * match needs in order to decide anything.
+   */
+  async recognizeWithIdentity(image_b64: string) {
+    const result = await this.recognize(image_b64) as {
+      faces?: Array<Record<string, unknown> & { person_id?: string }>;
+    };
+    const faces = result.faces ?? [];
+    const personIds = [...new Set(faces.map((f) => f.person_id).filter((id): id is string => Boolean(id)))];
+    if (!personIds.length) return result;
+
+    const records = await this.faces.find({ where: { aiPersonId: In(personIds) } });
+    const byPerson = new Map(records.map((record) => [record.aiPersonId, record]));
+
+    return {
+      ...result,
+      faces: faces.map((face) => {
+        const record = face.person_id ? byPerson.get(face.person_id) : undefined;
+        if (!record) return { ...face, identity: null };
+        return {
+          ...face,
+          identity: {
+            faceId: record.id,
+            name: record.name,
+            // 'Owner', 'Son', 'Driver' ... as captured at registration.
+            role: record.role,
+            type: record.type,
+            building: record.bldg ?? null,
+            unit: record.unit ?? null,
+          },
+        };
+      }),
+    };
   }
 
   // ---- Unattended recognition -----------------------------------------

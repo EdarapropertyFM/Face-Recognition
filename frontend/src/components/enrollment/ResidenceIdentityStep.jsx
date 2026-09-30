@@ -6,7 +6,7 @@ import EnrollmentProgress from './EnrollmentProgress';
 import FormField from './FormField';
 import { requiresNationalId } from '../../utils/household';
 import SelectField from './SelectField';
-import { buildingsInProject, draftResidences, unitsInBuilding } from '../../utils/enrollment';
+import { buildingsInProject, draftResidences, unitLocked, unitsInBuilding } from '../../utils/enrollment';
 
 export default function ResidenceIdentityStep({
   draft, errors, projects, projectsLoading, projectsError, onRetryProjects,
@@ -43,8 +43,18 @@ export default function ResidenceIdentityStep({
               label: building.name?.[0] && building.name[0] !== building.code
                 ? `${building.name[0]} · ${building.code}` : building.code,
             }));
+          // A unit an owner has already registered is shown but cannot be
+          // picked, so the resident sees why it is unavailable. A tenant may
+          // still choose it: they rent it from that owner.
           const unitOptions = unitsInBuilding(residence.project, residence.building, projects)
-            .map((unit) => ({ value: unit, label: unit }));
+            .map((unit) => {
+              const locked = unitLocked(unit, draft.residentType);
+              return {
+                value: unit.code,
+                label: locked ? `${unit.code} — already registered by its owner` : unit.code,
+                disabled: locked,
+              };
+            });
           return (
             <fieldset className="enrollment-residence" key={residence.id}>
               <legend>
