@@ -41,7 +41,6 @@ coverage/
 # NEVER commit. .env.example carries the documented placeholders instead.
 .env
 .env.*
-!.env.example
 
 # Backend biometric asset storage
 backend/storage/
