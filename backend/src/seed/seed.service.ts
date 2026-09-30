@@ -48,6 +48,13 @@ export class SeedService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    // The first administrator is not demo data: without an account nobody
+    // can log in at all, so a production deployment would come up complete
+    // and unusable. It is created from the environment, once, and only when
+    // the table is empty -- it never touches an existing installation.
+    await this.ensureFirstAdmin();
+    await this.ensureSettingsRow();
+
     if (process.env.NODE_ENV === 'production' && process.env.SEED_DEMO_DATA !== 'true') {
       console.log('Demo seed disabled in production.');
       return;
@@ -60,6 +67,41 @@ export class SeedService implements OnModuleInit {
     await this.removeDemoAlerts();
     await this.seedIncidents();
     console.log('Seed completed.');
+  }
+
+  /**
+   * Creates the one administrator a fresh deployment needs.
+   *
+   * The password comes from ADMIN_PASSWORD. There is deliberately no default:
+   * a well-known fallback password on an access-control system is worse than
+   * a server that refuses to start and tells you why.
+   */
+  private async ensureFirstAdmin() {
+    if (await this.userRepo.count()) return;
+
+    const username = (process.env.ADMIN_USERNAME || 'admin').trim();
+    const password = process.env.ADMIN_PASSWORD || '';
+    if (password.length < 12) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('ADMIN_PASSWORD must be set to at least 12 characters: '
+          + 'the database has no users and nobody would be able to log in.');
+      }
+      return;   // development falls through to the demo accounts below
+    }
+
+    await this.userRepo.save({
+      u: username,
+      name: ['Administrator', 'المسؤول'],
+      role: 'Admin',
+      status: 'active',
+      passwordHash: this.passwordHash(password),
+    });
+    console.log(`Created the first administrator account: ${username}`);
+  }
+
+  /** A production database still needs its one settings row to exist. */
+  private async ensureSettingsRow() {
+    await this.seedSettings();
   }
 
   private async seedUsers() {

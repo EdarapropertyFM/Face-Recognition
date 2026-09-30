@@ -1,62 +1,67 @@
-# Full stack: PostgreSQL + Python AI + NestJS API + React frontend.
+# STMC, full stack: PostgreSQL + Python AI + NestJS API + React frontend.
 #
+#   cp .env.example .env     # then fill in the secrets it describes
 #   docker compose up -d --build
-#   frontend  http://localhost:5173
-#   API docs  http://localhost:3000/api
-#   AI        http://localhost:8000/gallery   /live   /dvr/setup
 #
-# First start downloads the ~600 MB buffalo_l model into the data volume.
+#   the whole system   http://<server>/          (port 80)
+#   API docs           http://<server>/api
 #
-# This supersedes backend/docker-compose.yml, which starts the database alone.
-# Both use the container name stmc_postgres and host port 5431, so stop that
-# one first or the database here cannot start:
+# Everything is reached through the frontend container on port 80, which
+# proxies /api to the backend. The backend and the AI are NOT published to
+# the network: they talk to each other inside the compose network, so the
+# company firewall only has to open one port.
 #
-#   docker compose -f backend/docker-compose.yml down
+# The backend runs its database migrations on start, so a clone deployed
+# against an empty database comes up with the full schema and no data.
+#
+# First start downloads the ~600 MB buffalo_l face model into ./data.
 #
 # CAMERA NOTE: a container cannot reach a USB webcam on Windows or macOS, so
-# /live?source=0 and browser enrolment work only when the AI runs on the host
-# (see README). DVR and RTSP sources work from the container either way. On
-# Linux, uncomment the `devices:` block under `ai` to pass a webcam through.
+# /live?source=0 works only when the AI runs on the host. The DVR and RTSP
+# cameras this system actually uses work from the container either way.
 
 services:
   db:
     image: postgres:15
-    container_name: stmc_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      POSTGRES_USER: ${DB_USER:?set DB_USER in .env}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
       # Holds both the backend tables and the AI's `facerec` schema.
       POSTGRES_DB: ${DB_NAME:-stmc}
-    ports:
-      # 5431 on the host to match the existing local setup; 5432 inside.
-      - '${DB_PORT:-5431}:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # Not published. Uncomment only to inspect the database from outside,
+    # and prefer `docker compose exec db psql` instead.
+    # ports:
+    #   - '5431:5432'
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-stmc}']
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER} -d ${DB_NAME:-stmc}']
       interval: 10s
       timeout: 5s
       retries: 10
 
   ai:
     build: .
-    container_name: stmc_ai
     restart: unless-stopped
     environment:
       DB_HOST: db
       DB_PORT: '5432'
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-password}
+      DB_USER: ${DB_USER:?}
+      DB_PASSWORD: ${DB_PASSWORD:?}
       DB_NAME: ${DB_NAME:-stmc}
       DB_SCHEMA: facerec
-    ports:
-      - '8000:8000'
+      # How the AI posts sightings back. Without these it falls back to
+      # 127.0.0.1 -- itself -- and a built-in development token, and every
+      # detection is silently dropped: Alerts and Track & Trace stay empty.
+      STMC_BACKEND_URL: http://backend:3000
+      STMC_AI_EVENT_TOKEN: ${STMC_AI_EVENT_TOKEN:?set STMC_AI_EVENT_TOKEN in .env}
     volumes:
-      # Model pack, embeddings.npy, gallery images, dvr.json. Bind-mounted so
-      # the gallery you already have is the one the container uses.
+      # Model pack, embeddings.npy, gallery images, evidence clips, dvr.json.
+      # Bind-mounted: biometric data must stay outside the image, and this is
+      # the directory to back up.
       - ./data:/app/data
-    # Linux only — Windows and macOS cannot pass a USB camera to a container:
+    # Linux only -- Windows and macOS cannot pass a USB camera to a container:
     # devices:
     #   - /dev/video0:/dev/video0
     depends_on:
@@ -65,22 +70,45 @@ services:
 
   backend:
     build: ./backend
-    container_name: stmc_backend
     restart: unless-stopped
-    env_file:
-      # Secrets live here, never in this file. Copy backend/.env.example and
-      # fill it in; the values below override only what differs in Docker.
-      - ./backend/.env
     environment:
-      NODE_ENV: development          # 'production' also enforces the secret-strength checks
+      # Turns on the secret-strength checks in validateEnvironment(): the
+      # server refuses to start with development secrets.
+      NODE_ENV: production
+      PORT: '3000'
       DB_HOST: db
       DB_PORT: '5432'
-      AI_BASE_URL: http://ai:8000    # service-to-service, inside the network
+      DB_USER: ${DB_USER:?}
+      DB_PASSWORD: ${DB_PASSWORD:?}
+      DB_NAME: ${DB_NAME:-stmc}
+      # Never in production: the schema comes from migrations, which the
+      # entrypoint runs. `true` here lets a code change silently alter or
+      # drop a column of live resident data.
+      DB_SYNCHRONIZE: 'false'
+      AI_BASE_URL: http://ai:8000
       BIOMETRIC_STORAGE_DIR: /app/storage
-    ports:
-      - '3000:3000'
+      # The browser calls /api on the frontend's own origin, so that origin
+      # is what CORS must allow. Must list the real address people type.
+      FRONTEND_ORIGINS: ${FRONTEND_ORIGINS:?set FRONTEND_ORIGINS in .env}
+      JWT_SECRET: ${JWT_SECRET:?}
+      STMC_AI_EVENT_TOKEN: ${STMC_AI_EVENT_TOKEN:?}
+      BIOMETRIC_ENCRYPTION_KEY: ${BIOMETRIC_ENCRYPTION_KEY:?}
+      CAMERA_CREDENTIALS_KEY: ${CAMERA_CREDENTIALS_KEY:?}
+      CAMERA_STREAM_SIGNING_KEY: ${CAMERA_STREAM_SIGNING_KEY:?}
+      REALTIME_SIGNING_KEY: ${REALTIME_SIGNING_KEY:?}
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-false}
+      # The first administrator, created once while the users table is empty.
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      # Continuous recognition on every enabled camera. Off by default in the
+      # code; a deployment that watches the building needs it on, or nothing
+      # ever reaches Alerts and Track & Trace.
+      CAMERA_MONITORING: ${CAMERA_MONITORING:-true}
     volumes:
+      # Encrypted ID cards, lease pages, vehicle licences and face images.
+      # Back this up together with ./data and the database.
       - backend_storage:/app/storage
+    # Not published: nginx reaches it inside the network.
     depends_on:
       db:
         condition: service_healthy
@@ -91,24 +119,16 @@ services:
     build:
       context: ./frontend
       args:
-        # Empty: the browser calls <the host you opened>:3000/api. Set this to
-        # a full URL only when the API is served from somewhere else.
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
-    container_name: stmc_frontend
+        # Same-origin: the browser calls /api and nginx proxies it to the
+        # backend. Keeps the system on one port and ready for HTTPS.
+        VITE_API_BASE_URL: /api
     restart: unless-stopped
     ports:
-      # 5173 keeps the address identical to `npm run dev`.
-      - '5173:80'
+      - '${HTTP_PORT:-80}:80'
     depends_on:
       backend:
         condition: service_started
 
 volumes:
   pgdata:
-    # The volume the standalone backend/docker-compose.yml already created.
-    # Naming it explicitly means this stack keeps the existing database
-    # (users, enrollments, and the AI's facerec schema) instead of starting
-    # from an empty one under a project-prefixed name.
-    name: backend_pgdata
   backend_storage:
-
