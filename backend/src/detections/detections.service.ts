@@ -26,7 +26,7 @@ export class DetectionsService {
     const detection = await this.detections.save(this.detections.create({ ...input, face: face ?? undefined, type: matchedFace?.type ?? input.type, when, decision: input.decision ?? 'unknown' }));
     const alert = await this.maybeCreateAlert(detection);
     this.realtime.emit('detection.created', { id: detection.id, cam: detection.cam, zone: detection.zone, type: detection.type, decision: detection.decision });
-    if (alert) this.realtime.emit('alert.created', { id: alert.id, cam: alert.cam, zone: alert.zone, status: alert.status, type: detection.type });
+    if (alert) this.realtime.emit('alert.created', { id: alert.id, cam: alert.cam, zone: alert.zone, type: detection.type });
     return { detection, alertCreated: Boolean(alert), alert };
   }
 
@@ -167,8 +167,18 @@ export class DetectionsService {
   /** One alert per person (or per 'motion') per camera within 2 minutes. */
   private async alertOnce(detection: Detection, face: string) {
     const since = new Date(Date.now() - 2 * 60 * 1000).toISOString();
-    const duplicate = await this.alerts.createQueryBuilder('alert').where('alert.cam = :cam AND alert.face = :face AND alert.status IN (:...statuses) AND alert.when >= :since', { cam: detection.cam, face, statuses: ['new', 'ack', 'actioned'], since }).getOne();
+    // One notification per person per camera within the window. This used to
+    // also require an un-triaged status; with the lifecycle gone, recency is
+    // the whole rule, which is what kept somebody standing in a lobby from
+    // generating an alert every few seconds.
+    const duplicate = await this.alerts.createQueryBuilder('alert')
+      .where('alert.cam = :cam AND alert.face = :face AND alert.when >= :since', { cam: detection.cam, face, since })
+      .getOne();
     if (duplicate) return duplicate;
-    return this.alerts.save(this.alerts.create({ id: `A-${Date.now()}`, face, cam: detection.cam, zone: detection.zone, when: detection.when, conf: detection.conf, status: 'new', log: [['ai', 'CREATED', new Date().toISOString()]] }));
+    return this.alerts.save(this.alerts.create({
+      id: `A-${Date.now()}`, face, cam: detection.cam, zone: detection.zone,
+      when: detection.when, conf: detection.conf,
+      log: [['ai', 'CREATED', new Date().toISOString()]],
+    }));
   }
 }

@@ -11,7 +11,12 @@ import { Incident } from '../incidents/entities/incident.entity';
 import { Setting } from '../settings/entities/setting.entity';
 import { User } from '../users/entities/user.entity';
 import { UnitRecord } from '../units/entities/unit-record.entity';
+import { RolePermission } from '../roles/entities/role-permission.entity';
 import { StmcBaseline1790767248711 } from './migrations/1790767248711-StmcBaseline';
+import { UserAlertsSeenAt1790853648000 } from './migrations/1790853648000-UserAlertsSeenAt';
+import { DropAlertStatus1790940000000 } from './migrations/1790940000000-DropAlertStatus';
+import { RolePermissions1790950000000 } from './migrations/1790950000000-RolePermissions';
+import { ReleaseRejectedIdentities1790990000000 } from './migrations/1790990000000-ReleaseRejectedIdentities';
 
 try { process.loadEnvFile('.env'); } catch { /* deployment variables may come from the host */ }
 
@@ -26,8 +31,12 @@ export default new DataSource({
   // Every entity, explicitly. A glob would break once the code is compiled
   // to dist/, and a missing one silently drops its table from the schema --
   // which is how `unit_registry` came to have no migration.
-  entities: [User, Face, Alert, Incident, Enrollment, BuildingSetting, Project, Camera, Setting, Detection, UnitRecord],
+  entities: [User, Face, Alert, Incident, Enrollment, BuildingSetting, Project, Camera, Setting, Detection, UnitRecord, RolePermission],
   // The baseline creates the whole schema. See migrations/README.md for why
   // the older 1727* files are not listed.
-  migrations: [StmcBaseline1790767248711],
+  migrations: [
+    StmcBaseline1790767248711, UserAlertsSeenAt1790853648000,
+    DropAlertStatus1790940000000, RolePermissions1790950000000,
+    ReleaseRejectedIdentities1790990000000,
+  ],
 });

@@ -136,3 +136,55 @@ export function normalizeMember(member: HouseholdMemberInput) {
     aiPersonId: member.aiPersonId ?? null,
   };
 }
+
+/** Digits only, so "2850101 01234 5" and "285010101234 5" are one identity. */
+export function normalizeNationalId(nid: unknown): string {
+  return String(nid ?? '').replace(/\D/g, '');
+}
+
+export type IdentityHolder = { label: string; nid: string };
+
+/**
+ * Everyone a submission claims to be, owner first. Members under 16 carry no
+ * National ID, so they contribute nothing to compare.
+ */
+export function identitiesInSubmission(
+  owner: Record<string, unknown> | undefined,
+  members: HouseholdMemberInput[] | undefined,
+): IdentityHolder[] {
+  const holders: IdentityHolder[] = [];
+  const ownerNid = normalizeNationalId(owner?.nid);
+  if (ownerNid) {
+    holders.push({ label: String(owner?.name ?? '').trim() || 'the owner', nid: ownerNid });
+  }
+  (members ?? []).forEach((member, index) => {
+    const nid = normalizeNationalId(member.nid);
+    if (nid) holders.push({ label: member.name?.trim() || `person ${index + 1}`, nid });
+  });
+  return holders;
+}
+
+/**
+ * One National ID belongs to one human being. Nothing stopped an owner from
+ * reusing his own ID for his son, which produced two people sharing one
+ * identity: the same ID would then match two faces, and any lookup by ID
+ * would return whichever row came first.
+ */
+export function duplicateNationalIdProblems(
+  owner: Record<string, unknown> | undefined,
+  members: HouseholdMemberInput[] | undefined,
+): string[] {
+  const seen = new Map<string, string>();
+  const problems: string[] = [];
+  for (const holder of identitiesInSubmission(owner, members)) {
+    const first = seen.get(holder.nid);
+    if (first) {
+      problems.push(
+        `National ID ${holder.nid} is used by both ${first} and ${holder.label}; each person needs their own`,
+      );
+    } else {
+      seen.set(holder.nid, holder.label);
+    }
+  }
+  return problems;
+}

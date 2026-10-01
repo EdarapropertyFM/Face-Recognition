@@ -9,9 +9,10 @@ import { Face } from '../faces/entities/face.entity';
 import { UnitsModule } from '../units/units.module';
 import { Enrollment } from '../enrollments/entities/enrollment.entity';
 import { Detection } from '../detections/entities/detection.entity';
+import { User } from '../users/entities/user.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Camera, Alert, Incident, Face, Enrollment, Detection]), UnitsModule],
+  imports: [TypeOrmModule.forFeature([Camera, Alert, Incident, Face, Enrollment, Detection, User]), UnitsModule],
   controllers: [DashboardController],
   providers: [DashboardService],
 })

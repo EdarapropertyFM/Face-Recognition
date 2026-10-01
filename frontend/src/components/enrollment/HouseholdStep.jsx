@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeft, ArrowRight, Camera, CheckCircle2, Trash2, Upload, UserPlus } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Camera, Check, CheckCircle2, Trash2, Upload, UserPlus } from 'lucide-react';
 import EnrollmentProgress from './EnrollmentProgress';
 import FormField from './FormField';
 import SelectField from './SelectField';
@@ -11,7 +11,7 @@ import {
 
 const RELATION_OPTIONS = RELATIONS.map((relation) => relation.value);
 
-export default function HouseholdStep({ members, onChange, onBack, onContinue }) {
+export default function HouseholdStep({ members, onChange, onBack, onContinue, ownerNid, ownerName }) {
   const [errors, setErrors] = useState([]);
   const [capturing, setCapturing] = useState(null);   // member id whose camera is open
 
@@ -37,7 +37,7 @@ export default function HouseholdStep({ members, onChange, onBack, onContinue })
   };
 
   const next = () => {
-    const found = validateMembers(members);
+    const found = validateMembers(members, { ownerNid, ownerName });
     setErrors(found);
     if (found.every((entry) => Object.keys(entry).length === 0)) onContinue();
   };
@@ -130,9 +130,19 @@ export default function HouseholdStep({ members, onChange, onBack, onContinue })
                   <strong>{facesDone ? 'Face photos captured' : 'Face photos'}</strong>
                   <small>{facesDone ? 'Added to the recognition gallery.' : 'Three photos, taken on this phone.'}</small>
                 </div>
-                <button type="button" className="enrollment-button secondary" onClick={() => setCapturing(member.id)}>
-                  {facesDone ? <><Camera size={15} /> Retake</> : <><Camera size={15} /> Capture faces</>}
-                </button>
+                {/* No retake once the three photos have passed the quality
+                    gate: there is nothing wrong to correct, and offering it
+                    invites people to redo work that was already accepted.
+                    Removing the person is still the way out of a mistake. */}
+                {facesDone ? (
+                  <span className="member-face-done" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--green)', fontWeight: 600, fontSize: 14 }}>
+                    <Check size={16} /> Captured
+                  </span>
+                ) : (
+                  <button type="button" className="enrollment-button secondary" onClick={() => setCapturing(member.id)}>
+                    <Camera size={15} /> Capture faces
+                  </button>
+                )}
               </div>
             )}
             {memberErrors.faces ? <p className="enrollment-field-error">{memberErrors.faces}</p> : null}

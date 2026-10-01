@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ROLES } from '../store';
 import { apiFetch } from '../api';
 import { AuthContext } from './auth-context';
@@ -9,6 +9,28 @@ export function AuthProvider({ children }) {
     return saved ? JSON.parse(saved) : null;
   });
   const [error, setError] = useState('');
+  // Permissions are stored server-side so the matrix is editable. ROLES from
+  // the bundle is only the fallback for the moment before they arrive, and
+  // for when the API cannot be reached -- it is the same shipped default.
+  const [roles, setRoles] = useState(ROLES);
+
+  const loadRoles = useCallback(async () => {
+    try {
+      const res = await apiFetch('/roles');
+      if (!res.ok) return;
+      const data = await res.json();
+      const map = Object.fromEntries((data.roles ?? []).map((row) => [row.role, { view: row.view ?? [], edit: row.edit ?? [] }]));
+      if (Object.keys(map).length) setRoles(map);
+    } catch { /* keep the shipped defaults */ }
+  }, []);
+
+  useEffect(() => { if (session) loadRoles(); }, [session, loadRoles]);
+
+  useEffect(() => {
+    const refresh = () => loadRoles();
+    window.addEventListener('stmc:roles-changed', refresh);
+    return () => window.removeEventListener('stmc:roles-changed', refresh);
+  }, [loadRoles]);
 
   useEffect(() => {
     const clearExpiredSession = () => setSession(null);
@@ -37,11 +59,11 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('stmc_session');
   };
 
-  const can    = (mod) => session && ROLES[session.role]?.view.includes(mod);
-  const canEdit = (mod) => session && ROLES[session.role]?.edit.includes(mod);
+  const can    = (mod) => Boolean(session && roles[session.role]?.view.includes(mod));
+  const canEdit = (mod) => Boolean(session && roles[session.role]?.edit.includes(mod));
 
   return (
-    <AuthContext.Provider value={{ session, login, logout, error, setError, can, canEdit }}>
+    <AuthContext.Provider value={{ session, login, logout, error, setError, can, canEdit, roles }}>
       {children}
     </AuthContext.Provider>
   );

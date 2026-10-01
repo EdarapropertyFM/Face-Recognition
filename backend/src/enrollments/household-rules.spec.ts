@@ -1,6 +1,7 @@
 import {
   ageFromNationalId, collectsMobile, householdMemberProblems, householdProblems,
   nationalIdProblem, normalizeMember, requiresNationalId,
+  duplicateNationalIdProblems, identitiesInSubmission, normalizeNationalId,
 } from './household-rules';
 
 // 2 = born 19xx. 29001011234567 -> 1990-01-01.
@@ -123,5 +124,51 @@ describe('normalizeMember', () => {
     expect(normalizeMember({ name: 'Youssef', relation: 'Son', age: 7, nid: ADULT_NID,
       nationalIdCard: 'data:image/jpeg;base64,card', mobile: '01012345678' }))
       .toMatchObject({ nid: null, nationalIdCard: null, mobile: '01012345678' });
+  });
+});
+
+describe('duplicate National IDs', () => {
+  const SON_NID = '30505051234567';
+
+  it('refuses an owner and his son sharing one National ID', () => {
+    const problems = duplicateNationalIdProblems(
+      { name: 'Amr Hassan', nid: ADULT_NID },
+      [{ ...adult(), name: 'Youssef Hassan', relation: 'Son', nid: ADULT_NID }],
+    );
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(ADULT_NID);
+    expect(problems[0]).toContain('Amr Hassan');
+    expect(problems[0]).toContain('Youssef Hassan');
+  });
+
+  it('refuses two household members sharing one National ID', () => {
+    expect(duplicateNationalIdProblems({ name: 'Amr', nid: SON_NID }, [
+      { ...adult(), name: 'Mona', nid: ADULT_NID },
+      { ...adult(), name: 'Sara', nid: ADULT_NID },
+    ])).toEqual([expect.stringContaining('Mona')]);
+  });
+
+  it('ignores spacing, so one identity cannot be split into two', () => {
+    expect(normalizeNationalId(' 290 0101-123 4567 ')).toBe(ADULT_NID);
+    expect(duplicateNationalIdProblems(
+      { name: 'Amr', nid: ADULT_NID },
+      [{ ...adult(), name: 'Youssef', nid: '290 0101 1234 567' }],
+    )).toHaveLength(1);
+  });
+
+  it('accepts a household where everyone has their own ID', () => {
+    expect(duplicateNationalIdProblems(
+      { name: 'Amr', nid: ADULT_NID },
+      [{ ...adult(), name: 'Youssef', nid: SON_NID }],
+    )).toEqual([]);
+  });
+
+  it('does not compare children, who carry no National ID', () => {
+    const kids = [
+      { name: 'Ali', relation: 'Son', age: 7, nid: null },
+      { name: 'Hana', relation: 'Daughter', age: 5, nid: null },
+    ];
+    expect(identitiesInSubmission({ name: 'Amr', nid: ADULT_NID }, kids)).toHaveLength(1);
+    expect(duplicateNationalIdProblems({ name: 'Amr', nid: ADULT_NID }, kids)).toEqual([]);
   });
 });

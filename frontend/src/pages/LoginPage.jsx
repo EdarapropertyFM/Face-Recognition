@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/useAuth';
 import { Shield, Eye, EyeOff } from 'lucide-react';
+import edaraLogo from '../assets/edara-logo.png';
 import './LoginPage.css';
 
 export default function LoginPage() {
@@ -28,6 +29,7 @@ export default function LoginPage() {
 
       <div className="login-card">
         {/* Logo area */}
+        <img src={edaraLogo} alt="Edara" className="login-logo-img" />
         <div className="login-logo">
           <div className="login-logo-icon">
             <Shield size={32} />

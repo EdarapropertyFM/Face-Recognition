@@ -84,8 +84,30 @@ export function validateMember(member, { requireFaces = true } = {}) {
   return errors;
 }
 
-export function validateMembers(members, options) {
-  return members.map((member) => validateMember(member, options));
+/** Digits only, so spacing cannot split one identity into two. */
+export function normalizeNid(nid) {
+  return String(nid ?? '').replace(/\D/g, '');
+}
+
+/**
+ * One National ID belongs to one person. Checked across the whole submission
+ * -- including the owner -- because each member on its own looks perfectly
+ * valid, which is how an owner and his son ended up sharing an identity.
+ */
+export function validateMembers(members, options = {}) {
+  const found = members.map((member) => validateMember(member, options));
+  const claimedBy = new Map();
+  const ownerNid = normalizeNid(options.ownerNid);
+  if (ownerNid) claimedBy.set(ownerNid, (options.ownerName || '').trim() || 'the owner');
+
+  members.forEach((member, index) => {
+    const nid = normalizeNid(member.nid);
+    if (!nid || found[index].nid) return;
+    const owner = claimedBy.get(nid);
+    if (owner) found[index].nid = `This National ID is already used by ${owner}. Each person needs their own.`;
+    else claimedBy.set(nid, member.name?.trim() || `person ${index + 1}`);
+  });
+  return found;
 }
 
 export function membersAreValid(members, options) {

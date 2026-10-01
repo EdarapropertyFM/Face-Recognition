@@ -4,6 +4,7 @@ import { DataSource, In, Repository } from 'typeorm';
 import { Face } from './entities/face.entity';
 import { Enrollment } from '../enrollments/entities/enrollment.entity';
 import { Detection } from '../detections/entities/detection.entity';
+import { Camera } from '../cameras/entities/camera.entity';
 import { CreateFaceDto } from './dto/create-face.dto';
 import { FROM_ENROLLMENT_SITE, inGallery } from './visibility';
 import { familyWithout, planRemoval } from './removal';
@@ -18,6 +19,7 @@ export class FacesService {
     @InjectRepository(Face) private faceRepo: Repository<Face>,
     @InjectRepository(Enrollment) private enrollRepo: Repository<Enrollment>,
     @InjectRepository(Detection) private detRepo: Repository<Detection>,
+    @InjectRepository(Camera) private cameraRepo: Repository<Camera>,
     private readonly storage: SecureStorageService,
     private readonly aiGateway: AiGatewayService,
     private readonly realtime: RealtimeService,
@@ -146,12 +148,25 @@ export class FacesService {
     const [recent, total] = await this.detRepo.findAndCount({
       where: { face: face.id }, order: { when: 'DESC' }, take: 20,
     });
+    // Sightings carry only the camera id, which reads as "CH1-CH1-CH1".
+    // Attach what the camera is actually called, and the building it
+    // watches, so the table says something to the person reading it.
+    const cameras = await this.cameraRepo.find();
+    const byId = new Map(cameras.map((camera) => [camera.id, camera]));
+    const recentNamed = recent.map((detection) => {
+      const camera = byId.get(detection.cam);
+      return {
+        ...detection,
+        cameraName: camera?.displayName || detection.cam,
+        building: camera?.buildingCode ?? null,
+      };
+    });
     const galleryPhotos = face.aiPersonId ? await this.aiGateway.personPhotos(face.aiPersonId) : [];
     return {
       ...(await this.hydrate(face)),
       galleryPhotos,
       detections: total,
-      recentDetections: recent,
+      recentDetections: recentNamed,
       member: member ? await this.hydrateMember(member) : null,
       enrollment: enrollment ? await this.hydrateEnrollment(enrollment) : null,
     };

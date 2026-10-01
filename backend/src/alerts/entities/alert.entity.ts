@@ -20,11 +20,13 @@ export class Alert {
   @Column()
   conf: number;
 
-  @Column()
-  status: string; // new, ack, actioned, resolved, false
-
+  /**
+   * [actor, action, timestamp] entries. An alert no longer has a triage
+   * lifecycle -- it is a notification that somebody was seen, not a case to
+   * work -- so this now only records how the alert came to exist.
+   */
   @Column('jsonb', { default: [] })
-  log: any[]; // Array of [user, action, timestamp]
+  log: any[];
 
   @Column({ nullable: true })
   incidentId: string;

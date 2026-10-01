@@ -60,6 +60,18 @@ export function unitCodesFor(buildingCode: string, totalUnits: number, unitCodes
   return Array.from({ length: Math.max(0, totalUnits) }, (_, index) => `${unitPrefix(buildingCode)}-${index + 1}`);
 }
 
+/**
+ * The identity of a door, ignoring punctuation and case.
+ *
+ * The same unit is written "4.6C-1" by the property register and "4.6-C-1"
+ * by anything that builds a code from the building name, so an owner stored
+ * under one spelling was invisible to a lookup using the other -- which is
+ * why a fully-owned building reported 0 owners.
+ */
+export function unitKeyOf(code: string | null | undefined): string {
+  return String(code ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
 /** Case-insensitive substring match used by the Units search box. */
 export function matches(query: string, ...fields: Array<string | null | undefined>): boolean {
   const needle = query.trim().toLowerCase();

@@ -1,4 +1,4 @@
-import { Building2 } from 'lucide-react';
+import edaraLogo from '../assets/edara-logo.png';
 import { useState } from 'react';
 import FaceCaptureStep from '../components/enrollment/FaceCaptureStep';
 import EnrollmentSuccess from '../components/enrollment/EnrollmentSuccess';
@@ -99,8 +99,9 @@ export default function EnrollmentPage() {
   return (
     <main className="enrollment-page">
       <div className="enrollment-shell">
-        <header className="enrollment-brand" aria-label="STMC secure enrollment">
-          <span className="enrollment-brand-mark"><Building2 size={24} aria-hidden="true" /></span>
+        <header className="enrollment-brand" aria-label="Edara STMC secure enrollment">
+          <img src={edaraLogo} alt="Edara" className="enrollment-logo" />
+          <span className="enrollment-brand-divider" aria-hidden="true" />
           <span><strong>STMC</strong><small>Secure enrollment</small></span>
         </header>
         {resumeOffer && <div className="enrollment-resume" role="status">
@@ -148,7 +149,8 @@ export default function EnrollmentPage() {
               onCapturesChange={updateFaceCaptures}
             />
           ) : step === 3 ? (
-            <HouseholdStep members={draft.family} onChange={setFamily} onBack={() => goToStep(2)} onContinue={() => goToStep(4)} />
+            <HouseholdStep members={draft.family} onChange={setFamily} ownerNid={draft.nid} ownerName={draft.name}
+              onBack={() => goToStep(2)} onContinue={() => goToStep(4)} />
           ) : step === 4 ? (
             <VehiclesStep vehicles={draft.cars} onChange={setCars} onBack={() => goToStep(3)} onContinue={() => goToStep(5)} />
           ) : step === 5 ? (

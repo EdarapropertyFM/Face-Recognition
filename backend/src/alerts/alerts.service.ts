@@ -23,9 +23,9 @@ export class AlertsService {
   ) {}
 
   async create(dto: CreateAlertDto) {
-    const alert = this.alertRepo.create({ ...dto, id: dto.id ?? `A-${Date.now()}`, when: dto.when ?? new Date().toISOString(), status: dto.status ?? 'new', log: dto.log ?? [] });
+    const alert = this.alertRepo.create({ ...dto, id: dto.id ?? `A-${Date.now()}`, when: dto.when ?? new Date().toISOString(), log: dto.log ?? [] });
     const saved = await this.alertRepo.save(alert);
-    this.realtime.emit('alert.created', { id: saved.id, cam: saved.cam, zone: saved.zone, status: saved.status });
+    this.realtime.emit('alert.created', { id: saved.id, cam: saved.cam, zone: saved.zone });
     return saved;
   }
 
@@ -79,17 +79,16 @@ export class AlertsService {
     return alert;
   }
 
+  /**
+   * An alert is a notification, not a case: there is no ack/actioned/resolved
+   * cycle to move it through any more. What remains editable is the link to
+   * an incident, for the rare alert somebody escalates.
+   */
   async update(id: string, dto: UpdateAlertDto) {
     const alert = await this.findOne(id);
-    if (dto.status && dto.status !== alert.status) {
-      const allowed: Record<string, string[]> = { new: ['ack', 'false'], ack: ['actioned', 'false'], actioned: ['resolved', 'false'] };
-      if (!allowed[alert.status]?.includes(dto.status)) throw new BadRequestException(`Cannot move alert from ${alert.status} to ${dto.status}`);
-      alert.status = dto.status;
-      alert.log = [...(alert.log ?? []), [dto.actor ?? 'system', dto.status.toUpperCase(), new Date().toISOString()]];
-    }
     Object.assign(alert, { ...dto, actor: undefined });
     const saved = await this.alertRepo.save(alert);
-    this.realtime.emit('alert.updated', { id: saved.id, status: saved.status, incidentId: saved.incidentId ?? null });
+    this.realtime.emit('alert.updated', { id: saved.id, incidentId: saved.incidentId ?? null });
     return saved;
   }
 

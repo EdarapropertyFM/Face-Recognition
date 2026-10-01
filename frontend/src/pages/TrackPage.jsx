@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
-import { Download, Eye, Map, MapPin, Clock, Timer, Route, ShieldAlert, UserX, User, Building2, Cctv, CalendarDays, ImageOff, Play } from 'lucide-react';
+import { Building2, CalendarDays, Cctv, Clock, Eye, ImageOff, Map, MapPin, Play, Route, ShieldAlert, Timer, Upload, User, UserX } from 'lucide-react';
 import { apiFetch } from '../api';
 import { displayName } from '../utils/display';
 import { formatWhen } from './AlertsPage';
@@ -120,7 +120,7 @@ export default function TrackPage() {
           ))}
         </select>
         <div className="grow" />
-        <button className="btn ghost sm" disabled={!evs.length} onClick={() => exportCsv(selected, evs)}><Download size={14} /> Export CSV</button>
+        <button className="btn ghost sm" disabled={!evs.length} onClick={() => exportCsv(selected, evs)}><Upload size={14} /> Export CSV</button>
       </div>
 
       {error && <div className="panel glass-panel" style={{ padding: 16, marginBottom: 16, color: 'var(--red)' }}>{error}</div>}

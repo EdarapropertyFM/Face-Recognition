@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 import { apiFetch } from '../api';
+import edaraLogo from '../assets/edara-logo.png';
 import { useState } from 'react';
 import { useRealtime } from '../hooks/useRealtime';
 
@@ -98,6 +99,18 @@ export default function Layout({ children }) {
 
   const newAlerts = badges.alerts || 0;
 
+  // Opening the notifications is what clears them, and only for this user.
+  // The alerts themselves keep their triage status: reading a notification is
+  // not the same as having dealt with the alert.
+  const clearAlertBadge = async () => {
+    if (!newAlerts) return;
+    setBadges(previous => ({ ...previous, alerts: null }));
+    try {
+      await apiFetch('/dashboard/alerts-seen', { method: 'POST' });
+    } catch { /* the realtime hook reloads the badges either way */ }
+    loadBadges();
+  };
+
   function getBadge(key) {
     return badges[key] || null;
   }
@@ -106,11 +119,7 @@ export default function Layout({ children }) {
     <div>
       {/* ── Topbar ─────────────────────────────────────────── */}
       <div className="topbar">
-        <div style={{
-          width: 32, height: 32, background: 'var(--accent)', borderRadius: 6,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: '#fff', fontWeight: 900, fontSize: 16, flexShrink: 0,
-        }}>W</div>
+        <img src={edaraLogo} alt="Edara" className="brand-logo" />
 
         <div className="sys">
           <b>{t('sys_name')}</b>
@@ -127,7 +136,9 @@ export default function Layout({ children }) {
           {isDark ? <Sun size={14} /> : <Moon size={14} />}
         </button>
 
-        <Link to="/alerts" className="tb-btn" style={{ display: 'flex', alignItems: 'center', gap: 5, textDecoration: 'none' }}>
+        <Link to="/alerts" className="tb-btn" onClick={clearAlertBadge}
+          aria-label={newAlerts ? `${t('nav.alerts')} (${newAlerts})` : t('nav.alerts')}
+          style={{ display: 'flex', alignItems: 'center', gap: 5, textDecoration: 'none' }}>
           <Bell size={14} />
           {newAlerts > 0 && <span className="pill">{newAlerts}</span>}
         </Link>

@@ -7,6 +7,5 @@ export class CreateAlertDto {
   @IsInt() @Min(0) zone: number;
   @IsInt() @Min(0) @Max(100) conf: number;
   @IsOptional() @IsString() when?: string;
-  @IsOptional() @IsString() status?: string;
   @IsOptional() @IsArray() log?: unknown[];
 }

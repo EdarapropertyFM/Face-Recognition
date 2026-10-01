@@ -9,7 +9,7 @@ import { BuildingSetting } from './entities/building-setting.entity';
 import { Project } from './entities/project.entity';
 import { CreateBuildingDto, CreateProjectDto, UpdateProjectDto } from './dto/project.dto';
 import { UpdateBuildingSettingDto } from './dto/update-building-setting.dto';
-import { Residence, matches, residencesOf, unitCodesFor } from './residence';
+import { Residence, matches, residencesOf, unitCodesFor, unitKeyOf } from './residence';
 import { ownerClaimedUnits, unitKey } from './unit-lock';
 import { UnitRecord } from './entities/unit-record.entity';
 
@@ -128,10 +128,15 @@ export class UnitsService {
       // A registered unit is part of the building even before anybody has
       // enrolled from it: management knows who owns it, and an empty
       // building would otherwise look like an unconfigured one.
+      // Owners are matched on the door's identity, not its spelling: the
+      // register writes 4.6C-1 and generated codes read 4.6-C-1, and an
+      // exact-key lookup reported a fully-owned building as having none.
+      const ownerByKey = new Map(
+        Object.entries(setting.unitOwners ?? {}).map(([unit, owner]) => [unitKeyOf(unit), owner]));
       for (const code of unitCodesFor(setting.code, setting.totalUnits ?? 0, setting.unitCodes ?? [])) {
         if (row.units.some((u) => u.unit === code)) continue;
         row.units.push({
-          unit: code, owner: (setting.unitOwners ?? {})[code] ?? null,
+          unit: code, owner: ownerByKey.get(unitKeyOf(code)) ?? null,
           people: 0, enrollments: 0, approved: 0, pending: 0, faces: 0,
         });
       }
@@ -148,6 +153,14 @@ export class UnitsService {
         const row = ensure(residence.project, residence.building);
         const id = unitKey(residence);
         let unitRow = perUnit.get(id);
+        if (!unitRow) {
+          // The settings pass lists every registered unit, enrolled or not,
+          // so the row for this door usually exists already. Adopt it rather
+          // than pushing a second one -- that is what produced two rows for
+          // the same unit, one carrying the owner and one the enrolments.
+          unitRow = row.units.find((candidate) => candidate.unit === residence.unit);
+          if (unitRow) perUnit.set(id, unitRow);
+        }
         if (!unitRow) {
           unitRow = {
             unit: residence.unit, owner: null,
@@ -170,7 +183,9 @@ export class UnitsService {
       const unit = (face.unit ?? '').trim();
       if (!building || !unit) continue;
       if (face.type === 'unknown' || face.type === 'watch') continue;
-      const unitRow = perUnit.get(`${resolveProject(building)}${SEP}${building}${SEP}${unit}`);
+      const project = resolveProject(building);
+      const unitRow = perUnit.get(`${project}${SEP}${building}${SEP}${unit}`)
+        ?? buildings.get(`${project}${SEP}${building}`)?.units.find((row) => row.unit === unit);
       if (unitRow) unitRow.faces += 1;
     }
 
@@ -504,9 +519,126 @@ export class UnitsService {
     }));
   }
 
+  /**
+   * Creates many buildings in one call. A code that already exists is
+   * skipped rather than failing the batch: importing a tower's worth of
+   * buildings should not be all-or-nothing because one was added earlier.
+   */
+  async addBuildings(projectName: string, buildings: CreateBuildingDto[]) {
+    if (!await this.projects.exists({ where: { name: projectName } })) {
+      throw new NotFoundException('Project not found');
+    }
+    const existing = new Set(
+      (await this.settings.find({ where: { project: projectName }, select: { code: true } as never }))
+        .map((row) => row.code),
+    );
+    const created: string[] = [];
+    const skipped: string[] = [];
+    const rows: BuildingSetting[] = [];
+
+    for (const dto of buildings) {
+      const code = dto.code.trim();
+      if (!code || existing.has(code) || created.includes(code)) { skipped.push(code); continue; }
+      created.push(code);
+      rows.push(this.settings.create({
+        project: projectName,
+        code,
+        name: dto.name?.length ? dto.name : [code, code],
+        totalUnits: dto.totalUnits ?? dto.unitCodes?.length ?? 0,
+        unitCodes: dto.unitCodes ?? [],
+        unitOwners: dto.unitOwners ?? {},
+      }));
+    }
+    if (rows.length) await this.settings.save(rows);
+    return { created, skipped };
+  }
+
+  private async buildingOrFail(project: string, code: string) {
+    const row = await this.settings.findOne({ where: { project, code } });
+    if (!row) throw new NotFoundException('Building not found');
+    return row;
+  }
+
+  /** Appends unit codes, ignoring ones already present. */
+  async addUnits(project: string, code: string, units: string[]) {
+    const row = await this.buildingOrFail(project, code);
+    const have = new Set(row.unitCodes ?? []);
+    const added = [...new Set(units.map((unit) => unit.trim()).filter(Boolean))]
+      .filter((unit) => !have.has(unit));
+    row.unitCodes = [...(row.unitCodes ?? []), ...added];
+    // totalUnits drives the coverage bar, so it tracks the real list.
+    row.totalUnits = row.unitCodes.length;
+    await this.settings.save(row);
+    return { added, total: row.unitCodes.length };
+  }
+
+  /**
+   * Removes a unit. Refused while a registration still names it, otherwise
+   * the enrolment would point at a unit that no longer exists.
+   */
+  async removeUnit(project: string, code: string, unit: string) {
+    const row = await this.buildingOrFail(project, code);
+    const claimed = await this.enrollments.createQueryBuilder('e')
+      .where('(e.building = :code AND e.unit = :unit)', { code, unit })
+      .orWhere(
+        `EXISTS (SELECT 1 FROM jsonb_array_elements(e.residences) AS r
+                 WHERE r->>'building' = :code AND r->>'unit' = :unit)`,
+        { code, unit },
+      )
+      .getCount();
+    if (claimed) {
+      throw new BadRequestException(`${claimed} registration(s) list unit ${unit}. Remove those first.`);
+    }
+    row.unitCodes = (row.unitCodes ?? []).filter((existing) => existing !== unit);
+    const owners = { ...(row.unitOwners ?? {}) };
+    delete owners[unit];
+    row.unitOwners = owners;
+    row.totalUnits = row.unitCodes.length;
+    await this.settings.save(row);
+    return { unit, removed: true, total: row.unitCodes.length };
+  }
+
+  /**
+   * Sets or clears the registered owner of one unit -- what happens when a
+   * unit changes hands or is vacated. Targeted rather than rewriting the
+   * whole owner map, so two admins editing different units cannot overwrite
+   * one another.
+   */
+  async setUnitOwner(project: string, code: string, unit: string, owner?: string | null) {
+    const row = await this.buildingOrFail(project, code);
+    if (!(row.unitCodes ?? []).includes(unit)) {
+      throw new NotFoundException(`Unit ${unit} is not in building ${code}`);
+    }
+    const owners = { ...(row.unitOwners ?? {}) };
+    const name = (owner ?? '').trim();
+    if (name) owners[unit] = name; else delete owners[unit];
+    row.unitOwners = owners;
+    await this.settings.save(row);
+    return { unit, owner: name || null };
+  }
+
   async removeBuilding(projectName: string, code: string) {
     const setting = await this.settings.findOne({ where: { project: projectName, code } });
-    if (!setting) throw new NotFoundException('Building not found');
+    if (!setting) {
+      // The building can still be on screen without a settings row: the tree
+      // also surfaces buildings that cameras or registrations point at, so
+      // an approved resident never lives somewhere that appears nowhere.
+      // "Not found" was true of the row and useless to the person reading it.
+      const [cameras, registrations] = await Promise.all([
+        this.cameras.count({ where: { project: projectName, buildingCode: code } }),
+        this.registrationsUsing(projectName, code),
+      ]);
+      if (cameras || registrations) {
+        const reasons = [
+          cameras ? `${cameras} camera(s)` : '',
+          registrations ? `${registrations} registration(s)` : '',
+        ].filter(Boolean).join(' and ');
+        throw new BadRequestException(
+          `${code} is not a configured building — it is only listed because ${reasons} point at it. `
+          + 'Remove or reassign those and it disappears on its own.');
+      }
+      throw new NotFoundException(`No building ${code} in ${projectName}`);
+    }
 
     const cameras = await this.cameras.count({ where: { project: projectName, buildingCode: code } });
     if (cameras) {

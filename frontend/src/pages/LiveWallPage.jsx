@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Expand, HardDrive, LoaderCircle, Monitor, Radio, RefreshCw, RotateCw, VideoOff } from 'lucide-react';
-import { ZONES } from '../store';
 import { apiFetch, streamUrl as streamEndpoint } from '../api';
 import { useRealtime } from '../hooks/useRealtime';
 import { useOnScreen, usePageVisible, useStreamSlot } from '../hooks/useStreamSlot';
@@ -15,7 +14,7 @@ const BLANK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAAL
 function CameraFeed({ camera, lang, refreshKey }) {
   const [streamUrl, setStreamUrl] = useState('');
   const [state, setState] = useState(camera.rtspConfigured ? 'connecting' : 'unconfigured');
-  const location = camera.location || zoneLabel(camera.zone, lang);
+  const location = camera.buildingCode || camera.location || zoneLabel(camera.zone, lang);
   const tileRef = useRef(null);
   const onScreen = useOnScreen(tileRef);
   const [failed, setFailed] = useState(false);
@@ -195,7 +194,7 @@ function CameraFeed({ camera, lang, refreshKey }) {
 export default function LiveWallPage() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language === 'ar' ? 1 : 0;
-  const [zoneFilter, setZoneFilter] = useState(-1);
+  const [buildingFilter, setBuildingFilter] = useState('');
   const [cameras, setCameras] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -219,7 +218,13 @@ export default function LiveWallPage() {
     if (event.type.startsWith('camera.')) loadCameras();
   });
 
-  const visible = useMemo(() => cameras.filter((camera) => zoneFilter < 0 || camera.zone === zoneFilter), [cameras, zoneFilter]);
+  // Buildings, not zones: an operator thinks in terms of which block a
+  // camera is in, and the building is what every other screen groups by.
+  const buildings = useMemo(() => [...new Set(
+    cameras.map((camera) => camera.buildingCode).filter(Boolean))].sort(), [cameras]);
+  const visible = useMemo(
+    () => cameras.filter((camera) => !buildingFilter || camera.buildingCode === buildingFilter),
+    [cameras, buildingFilter]);
   const configured = cameras.filter((camera) => camera.rtspConfigured && camera.enabled !== false).length;
 
   // A recorder is one device with many feeds. Grouping its channels under a
@@ -245,7 +250,7 @@ export default function LiveWallPage() {
 
   return <>
     <div className="ph"><div><h1>{t('nav.livewall')}</h1><div className="sub">{configured} / {cameras.length} {lang ? 'مصدر بث مُعد' : 'streams configured'}</div></div><div className="grow" /><div className="chips"><span className="chip"><i style={{ color: 'var(--green)' }}>●</i> {t('face.known')}</span><span className="chip"><i style={{ color: 'var(--amber)' }}>●</i> {t('face.unknown')}</span></div></div>
-    <div className="toolbar" style={{ marginBottom: 16 }}><Monitor size={16} style={{ color: 'var(--muted)' }} /><select value={zoneFilter} onChange={(event) => setZoneFilter(Number(event.target.value))}><option value={-1}>{lang ? 'كل المناطق' : 'All Zones'}</option>{ZONES.map((zone, index) => <option key={zone[0]} value={index}>{zone[lang]}</option>)}</select><button className="btn ghost sm" onClick={() => { loadCameras(); setRefreshKey((value) => value + 1); }}><RefreshCw size={13} /> {lang ? 'تحديث البث' : 'Refresh streams'}</button></div>
+    <div className="toolbar" style={{ marginBottom: 16 }}><Monitor size={16} style={{ color: 'var(--muted)' }} /><select value={buildingFilter} onChange={(event) => setBuildingFilter(event.target.value)}><option value="">{lang ? 'كل المباني' : 'All buildings'}</option>{buildings.map((code) => <option key={code} value={code}>{code}</option>)}</select><button className="btn ghost sm" onClick={() => { loadCameras(); setRefreshKey((value) => value + 1); }}><RefreshCw size={13} /> {lang ? 'تحديث البث' : 'Refresh streams'}</button></div>
     {error && <div className="note" style={{ color: 'var(--red)', borderColor: 'var(--red)' }}>{error}</div>}
     {loading ? <div className="note"><LoaderCircle size={15} /> {lang ? 'جاري تحميل الكاميرات…' : 'Loading cameras…'}</div> : groups.map((group) => {
       const online = group.cameras.filter((camera) => camera.rtspConfigured && camera.enabled !== false).length;
@@ -260,7 +265,7 @@ export default function LiveWallPage() {
         {!shut && <div className="wall">{group.cameras.map((camera) => <CameraFeed key={camera.id} camera={camera} lang={lang} refreshKey={refreshKey} />)}</div>}
       </section>;
     })}
-    {!loading && !visible.length && <div className="note">{lang ? 'لا توجد كاميرات في هذه المنطقة.' : 'No cameras in this zone.'}</div>}
+    {!loading && !visible.length && <div className="note">{lang ? 'لا توجد كاميرات في هذا المبنى.' : 'No cameras in this building.'}</div>}
     <div className="note" style={{ marginTop: 16 }}>{lang ? 'البث يعرض نتائج التعرف على الوجوه المرسومة مباشرة بواسطة نموذج STMC AI. روابط RTSP وبيانات الدخول لا تصل إلى المتصفح.' : 'The stream shows face-recognition overlays generated live by STMC AI. RTSP URLs and credentials never reach the browser.'}</div>
   </>;
 }

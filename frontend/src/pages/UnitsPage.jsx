@@ -21,7 +21,7 @@ function Kpi({ icon, tone, label, value }) {
 }
 
 function StmcStatus({ registrations, lang }) {
-  if (!registrations?.length) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>{lang ? 'غير مسجل' : 'Not registered'}</span>;
+  if (!registrations?.length) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>{lang ? 'غير مسجل' : 'Not enrolled'}</span>;
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
       {registrations.map((r) => (
@@ -84,7 +84,7 @@ export default function UnitsPage() {
         <Kpi icon={<Home size={18} />} tone="blue" label={lang ? 'الوحدات' : 'Units'} value={totals.units} />
         <Kpi icon={<UserCheck size={18} />} tone="green" label={lang ? 'لها مالك' : 'With owner'} value={totals.owned} />
         <Kpi icon={<UserX size={18} />} tone="amber" label={lang ? 'بدون مالك' : 'No owner listed'} value={totals.vacant} />
-        <Kpi icon={<UserCheck size={18} />} tone="green" label={lang ? 'مسجلة في STMC' : 'Registered in STMC'} value={totals.withStmc} />
+        <Kpi icon={<UserCheck size={18} />} tone="green" label={lang ? 'مسجلة في STMC' : 'Enrolled in STMC'} value={totals.withStmc} />
       </div>
 
       <div className="toolbar" style={{ marginBottom: 16 }}>
@@ -137,7 +137,7 @@ export default function UnitsPage() {
                           <tr>
                             <th style={{ paddingInlineStart: 64 }}>{lang ? 'الوحدة' : 'Unit'}</th>
                             <th>{lang ? 'اسم المالك' : 'Owner name'}</th>
-                            <th>{lang ? 'التسجيل في STMC' : 'STMC registration'}</th>
+                            <th>{lang ? 'التسجيل في STMC' : 'Enrolled in STMC'}</th>
                           </tr>
                         </thead>
                         <tbody>

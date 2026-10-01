@@ -1,10 +1,37 @@
 import { useCallback, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Search, UserPlus, Download, Users, ShieldAlert, UserX, User, Car, Trash2, X } from 'lucide-react';
+import { Car, Search, ShieldAlert, Trash2, Upload, User, UserX, Users, X } from 'lucide-react';
 import { apiFetch } from '../api';
-import { displayName, zoneLabel } from '../utils/display';
+import { displayName } from '../utils/display';
 import { useAuth } from '../context/useAuth';
+
+const CSV_COLUMNS = [
+  ['Face ID', f => f.id],
+  ['Name', f => (Array.isArray(f.name) ? f.name[0] : f.name) ?? ''],
+  ['Tier', f => f.type ?? ''],
+  ['Role', f => (Array.isArray(f.role) ? f.role[0] : f.role) ?? ''],
+  ['Building', f => f.bldg ?? ''],
+  ['Unit', f => f.unit ?? ''],
+  ['National ID', f => f.idno ?? ''],
+  ['Detections', f => f.detections ?? 0],
+  ['In AI gallery', f => (f.inGallery === false ? 'no' : 'yes')],
+];
+
+/** Exports exactly the rows the filters are showing. */
+function exportCsv(rows, lang) {
+  const csv = [CSV_COLUMNS.map(([heading]) => heading)]
+    .concat(rows.map(row => CSV_COLUMNS.map(([, read]) => read(row))))
+    .map(cells => cells.map(cell => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(','))
+    .join('\r\n');
+  // The BOM makes Excel read the Arabic names as UTF-8 rather than mojibake.
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }));
+  link.download = `face-database-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  void lang;
+}
 
 export default function FaceDBPage() {
   const { t, i18n } = useTranslation();
@@ -13,6 +40,8 @@ export default function FaceDBPage() {
   const lang = i18n.language === 'ar' ? 1 : 0;
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [building, setBuilding] = useState('');
+  const [unit, setUnit] = useState('');
   const [FACES, setFaces] = useState([]);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState(null);   // full record from GET /faces/:id
@@ -43,16 +72,39 @@ export default function FaceDBPage() {
     }
   };
 
+  // Options come from the records actually present, so a filter can never
+  // offer a value that returns nothing.
+  const buildings = [...new Set(FACES.map(f => f.bldg).filter(Boolean))].sort();
+  const units = [...new Set(FACES
+    .filter(f => !building || f.bldg === building)
+    .map(f => f.unit).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
   const filtered = FACES.filter(f => {
     const bucket = (f.type === 'known' || f.type === 'staff') ? 'owner' : f.type === 'unknown' ? 'stranger' : 'watch';
-    const matches = filter === 'all' || filter === bucket || filter === f.type;
+    if (!(filter === 'all' || filter === bucket || filter === f.type)) return false;
+    if (building && f.bldg !== building) return false;
+    if (unit && f.unit !== unit) return false;
 
     const nameStr = Array.isArray(f.name) ? f.name.join(' ') : (f.name || '');
     const roleStr = Array.isArray(f.role) ? f.role.join(' ') : (f.role || '');
-
     const q = (f.id + nameStr + (f.idno || '') + roleStr + (f.bldg || '') + (f.unit || '')).toLowerCase();
-    return matches && q.includes(search.toLowerCase());
+    return q.includes(search.toLowerCase());
   });
+
+  const bucketOf = (f) => (f.type === 'known' || f.type === 'staff') ? 'owner'
+    : f.type === 'unknown' ? 'stranger' : 'watch';
+  const present = new Set(FACES.map(bucketOf));
+  const staffCount = FACES.filter(f => f.type === 'staff').length;
+  const tierChips = [
+    ['all', lang ? 'الكل' : 'All', FACES.length],
+    ...(present.has('owner') ? [['owner', lang ? 'المقيمون' : 'Residents', FACES.filter(f => bucketOf(f) === 'owner').length]] : []),
+    ...(staffCount ? [['staff', lang ? 'الموظفون' : 'Staff', staffCount]] : []),
+    ...(present.has('stranger') ? [['stranger', lang ? 'الغرباء' : 'Strangers', FACES.filter(f => bucketOf(f) === 'stranger').length]] : []),
+    ...(present.has('watch') ? [['watch', lang ? 'قائمة المراقبة' : 'Watchlist', FACES.filter(f => bucketOf(f) === 'watch').length]] : []),
+  ];
+
+  const activeFilters = (filter !== 'all' ? 1 : 0) + (building ? 1 : 0) + (unit ? 1 : 0);
+  const clearFilters = () => { setFilter('all'); setBuilding(''); setUnit(''); setSearch(''); };
 
   const askDelete = async (face) => {
     setDeleteError('');
@@ -87,7 +139,11 @@ export default function FaceDBPage() {
       <div className="ph">
         <div>
           <h1><Users size={24} style={{ verticalAlign: 'middle', color: 'var(--accent)', marginRight: 8, marginBottom: 4 }} />{t('nav.facedb')}</h1>
-          <div className="sub">{FACES.length} {lang ? 'وجوه · المالك مقابل الغريب' : 'faces · Owner vs Stranger'}</div>
+          <div className="sub">
+            {FACES.length} {lang
+              ? (FACES.length === 1 ? 'شخص مسجّل' : 'أشخاص مسجّلون')
+              : `enrolled ${FACES.length === 1 ? 'person' : 'people'}`}
+          </div>
         </div>
       </div>
 
@@ -96,15 +152,45 @@ export default function FaceDBPage() {
           <Search size={14} />
           <input type="text" placeholder={lang ? 'بحث…' : 'Search…'} value={search} onChange={e => setSearch(e.target.value)} />
         </div>
-        <select value={filter} onChange={e => setFilter(e.target.value)}>
-          <option value="all">{lang ? 'الكل' : 'All'}</option>
-          <option value="owner">👤 {lang ? 'الملاك' : 'Owners'}</option>
-          <option value="staff">{lang ? 'الموظفون' : 'Staff'}</option>
-          <option value="stranger">❓ {lang ? 'الغرباء' : 'Strangers'}</option>
+        {/* Built from the tiers actually present. A face record only exists
+            for somebody who enrolled, so Strangers and Watchlist were
+            filters that could never match anything -- they are offered only
+            if such a record ever appears. */}
+        {tierChips.length > 1 && (
+          <div className="chips">
+            {tierChips.map(([key, label, count]) => (
+              <span key={key} className={`chip ${filter === key ? 'on' : ''}`} onClick={() => setFilter(key)}>
+                {label}{count === null ? '' : ` ${count}`}
+              </span>
+            ))}
+          </div>
+        )}
+
+        <select value={building} onChange={e => { setBuilding(e.target.value); setUnit(''); }}>
+          <option value="">{lang ? 'كل المباني' : 'All buildings'}</option>
+          {buildings.map(code => <option key={code} value={code}>{code}</option>)}
         </select>
+
+        <select value={unit} onChange={e => setUnit(e.target.value)} disabled={!units.length}>
+          <option value="">{lang ? 'كل الوحدات' : 'All units'}</option>
+          {units.map(code => <option key={code} value={code}>{code}</option>)}
+        </select>
+
+        {activeFilters > 0 && (
+          <button className="btn ghost sm" onClick={clearFilters}>
+            <X size={13} /> {lang ? 'مسح' : 'Clear'}
+          </button>
+        )}
+
         <div className="grow" />
-        <button className="btn"><UserPlus size={14} /> {lang ? 'تسجيل وجه' : 'Enroll Face'}</button>
-        <button className="btn ghost sm"><Download size={14} /> Export CSV</button>
+        <span className="sub" style={{ fontSize: 12 }}>
+          {filtered.length === FACES.length
+            ? `${FACES.length} ${lang ? 'شخص' : 'people'}`
+            : `${filtered.length} ${lang ? 'من' : 'of'} ${FACES.length}`}
+        </span>
+        <button className="btn ghost sm" disabled={!filtered.length} onClick={() => exportCsv(filtered, lang)}>
+          <Upload size={14} /> {lang ? 'تصدير CSV' : 'Export CSV'}
+        </button>
       </div>
 
       <div className="panel glass-panel" style={{ padding: 0, overflowX: 'auto', border: 'none' }}>
@@ -145,7 +231,10 @@ export default function FaceDBPage() {
                 <td><span style={{ padding: '2px 8px', background: 'rgba(255,255,255,0.05)', borderRadius: 12 }}>{f.detections ?? 0}</span></td>
                 <td>
                   <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
-                    <button className="btn ghost sm" onClick={() => navigate('/track')}>Track</button>
+                    {/* Track reads ?face=; without it the page falls back to
+                        whoever was seen most recently, not this row. */}
+                    <button className="btn ghost sm"
+                      onClick={() => navigate(`/track?face=${encodeURIComponent(f.id)}`)}>Track</button>
                     {canEdit('facedb') ? (
                       <button className="btn ghost sm" title={lang ? 'حذف' : 'Delete'}
                         aria-label={lang ? 'حذف' : 'Delete'}
@@ -346,13 +435,13 @@ function FaceDetails({ face, lang, t, onClose }) {
             <label>{lang ? 'آخر الاكتشافات' : 'Recent detections'} ({face.detections})</label>
             {face.recentDetections?.length ? (
               <table>
-                <thead><tr><th>{lang ? 'الوقت' : 'When'}</th><th>{lang ? 'الكاميرا' : 'Camera'}</th><th>{lang ? 'المنطقة' : 'Zone'}</th><th>{lang ? 'الثقة' : 'Conf.'}</th></tr></thead>
+                <thead><tr><th>{lang ? 'الوقت' : 'When'}</th><th>{lang ? 'الكاميرا' : 'Camera'}</th><th>{lang ? 'المبنى' : 'Building'}</th><th>{lang ? 'الثقة' : 'Conf.'}</th></tr></thead>
                 <tbody>
                   {face.recentDetections.map(d => (
                     <tr key={d.id}>
                       <td className="mono" style={{ fontSize: 11 }}>{(d.when || '').slice(0, 19).replace('T', ' ')}</td>
-                      <td className="mono">{d.cam}</td>
-                      <td>{zoneLabel(d.zone, lang)}</td>
+                      <td>{d.cameraName || d.cam}</td>
+                      <td className="mono">{d.building || '—'}</td>
                       <td>{d.conf}%</td>
                     </tr>
                   ))}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Upload, Search, CheckCircle, XCircle, Trash2, Info, FileCheck, Car, Users } from 'lucide-react';
+import { Car, CheckCircle, FileCheck, Info, LoaderCircle, Search, Upload, Users, XCircle } from 'lucide-react';
 import { PENDING_ENROLLMENTS } from '../store';
 import { useAuth } from '../context/useAuth';
 import { apiFetch } from '../api';
@@ -11,9 +11,44 @@ const STATUS_COLORS = {
   failed: 'watch', deleting: 'actioned', delete_failed: 'watch',
 };
 
+const CSV_COLUMNS = [
+  ['Ref', r => r.ref],
+  ['Status', r => r.status || 'pending'],
+  ['Resident type', r => r.residentType || 'owner'],
+  ['Owner', r => r.owner?.name ?? ''],
+  ['National ID', r => r.owner?.nid ?? ''],
+  ['Mobile', r => r.owner?.mobile ?? ''],
+  ['Building', r => r.building ?? ''],
+  ['Unit', r => r.unit ?? ''],
+  ['People', r => 1 + (r.family?.length || 0)],
+  ['Vehicles', r => r.cars?.length || 0],
+  ['Submitted', r => (r.submittedAt || '').slice(0, 16).replace('T', ' ')],
+  ['AI sync', r => r.aiSyncStatus || 'not_started'],
+  ['Decision note', r => r.validationNote ?? ''],
+];
+
+/**
+ * Exports exactly what the status filter is showing, so "Approved" exports the
+ * approved registrations and "All" exports every one. A leading apostrophe
+ * would be dropped by spreadsheets, so values are quoted and quotes doubled.
+ */
+function exportCsv(rows, scope) {
+  const csv = [CSV_COLUMNS.map(([heading]) => heading)]
+    .concat(rows.map(row => CSV_COLUMNS.map(([, read]) => read(row))))
+    .map(cells => cells.map(cell => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(','))
+    .join('\r\n');
+  // The BOM makes Excel read the Arabic names as UTF-8 rather than mojibake.
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `enrollments-${scope}-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
 export default function EnrollmentsPage() {
   const { t, i18n } = useTranslation();
-  const { canEdit, session } = useAuth();
+  const { canEdit } = useAuth();
   const lang = i18n.language === 'ar' ? 1 : 0;
   const [records, setRecords] = useState([]);
   const [statusFilter, setStatusFilter] = useState('pending');
@@ -21,6 +56,10 @@ export default function EnrollmentsPage() {
   const [viewing, setViewing] = useState(null);
   const [licence, setLicence] = useState(null);   // vehicle whose licence is shown full size
   const [tab, setTab] = useState('requests');   // 'requests' | 'coverage'
+  const [rejecting, setRejecting] = useState(null);  // ref awaiting a rejection reason
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectError, setRejectError] = useState('');
+  const [rejectBusy, setRejectBusy] = useState(false);
 
   const loadRecords = () => apiFetch('/enrollments')
     .then(res => res.ok ? res.json() : Promise.reject(new Error('Failed to load enrollments')))
@@ -46,27 +85,39 @@ export default function EnrollmentsPage() {
       await loadRecords();
     }
   };
-  const reject = async (ref) => {
-    const res = await apiFetch(`/enrollments/${ref}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'rejected' }),
-    });
-    if (res.ok) { await loadRecords(); setViewing(null); }
-    else alert(lang ? 'تعذر رفض الطلب.' : 'Could not reject this request.');
-  };
-  const removeTestRegistration = async (ref) => {
-    const accepted = window.confirm(lang
-      ? 'سيتم حذف طلب التسجيل والوجه من قاعدة البيانات ومن نظام الذكاء الاصطناعي. هل تريد المتابعة؟'
-      : 'This removes the enrollment, Face Database record, and AI Gallery person. Continue?');
-    if (!accepted) return;
-    const res = await apiFetch(`/enrollments/${ref}`, { method: 'DELETE' });
-    if (res.ok) { await loadRecords(); setViewing(null); }
-    else {
-      const body = await res.json().catch(() => ({}));
-      alert(body.message || (lang ? 'تعذر حذف التسجيل التجريبي.' : 'Could not delete the test registration.'));
-    }
+  // A rejection carries its reason: the applicant is told what to fix, and
+  // the record keeps an account of why it was refused.
+  const closeReject = () => {
+    setRejecting(null); setRejectReason(''); setRejectError('');
   };
 
+  const confirmReject = async () => {
+    const reason = rejectReason.trim();
+    if (reason.length < 3) {
+      setRejectError(lang ? 'اكتب سبب الرفض.' : 'Write why this registration is being rejected.');
+      return;
+    }
+    setRejectBusy(true);
+    const res = await apiFetch(`/enrollments/${rejecting}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'rejected', validationNote: reason }),
+    });
+    setRejectBusy(false);
+    if (res.ok) {
+      await loadRecords();
+      closeReject();
+      setViewing(null);
+    } else {
+      const body = await res.json().catch(() => ({}));
+      setRejectError([body.message].flat().filter(Boolean).join(' ')
+        || (lang ? 'تعذر رفض الطلب.' : 'Could not reject this request.'));
+    }
+  };
   const rec = viewing ? records.find(r => r.ref === viewing) : null;
+  // Whose registration is being refused. The validate modal is hidden while
+  // this prompt is open -- leaving it mounted stacked two backdrops and left
+  // a scrollable modal moving behind the dialog.
+  const rejectingRec = rejecting ? records.find(r => r.ref === rejecting) : null;
 
   return (
     <>
@@ -103,10 +154,11 @@ export default function EnrollmentsPage() {
           ))}
         </div>
         <div className="grow" />
-        <label className="btn ghost sm">
-          <Upload size={14} /> {lang ? 'استيراد' : 'Import'}
-          <input type="file" accept="application/json" style={{ display: 'none' }} />
-        </label>
+        <button className="btn ghost sm" disabled={!filtered.length}
+          title={lang ? 'تصدير ما يعرضه الفلتر الحالي' : 'Exports whatever the current filter shows'}
+          onClick={() => exportCsv(filtered, statusFilter)}>
+          <Upload size={14} /> {lang ? 'تصدير' : 'Export'} ({filtered.length})
+        </button>
       </div>
 
       <div className="panel glass-panel" style={{ padding: 0, overflowX: 'auto', border: 'none' }}>
@@ -145,7 +197,7 @@ export default function EnrollmentsPage() {
       </>}
 
       {/* Modal */}
-      {rec && (
+      {rec && !rejecting && (
         <div className="overlay" onClick={e => e.target === e.currentTarget && setViewing(null)}>
           <div className="modal">
             <div className="mh">
@@ -231,15 +283,37 @@ export default function EnrollmentsPage() {
                   On Approve: the validated owner becomes active in the Face Database for <b>{rec.building} {rec.unit}</b>. Household members remain application details unless separately enrolled.
                 </div>
               </div>
-              {rec.validationNote && <div className="panel glass-panel" style={{ padding: '12px 16px', marginTop: 12, borderColor: rec.status === 'failed' ? 'var(--red)' : undefined, color: rec.status === 'failed' ? 'var(--red)' : 'var(--txt)' }}>{rec.validationNote}</div>}
+              {/* The note was rendered as a bare paragraph, so a rejection
+                  reason appeared as unattributed text with no field name.
+                  It is the record of a decision, so it is labelled as one. */}
+              {rec.validationNote ? (
+                <div className={`decision-note ${rec.status === 'rejected' ? 'rejected' : rec.status === 'failed' ? 'failed' : ''}`}>
+                  <div className="decision-note-head">
+                    {rec.status === 'rejected'
+                      ? <><XCircle size={14} /> {lang ? 'سبب الرفض' : 'Reason for rejection'}</>
+                      : rec.status === 'failed'
+                        ? <><Info size={14} /> {lang ? 'سبب الفشل' : 'Why it failed'}</>
+                        : <><Info size={14} /> {lang ? 'ملاحظة' : 'Note'}</>}
+                  </div>
+                  <p>{rec.validationNote}</p>
+                </div>
+              ) : rec.status === 'rejected' ? (
+                <div className="decision-note rejected">
+                  <div className="decision-note-head">
+                    <XCircle size={14} /> {lang ? 'سبب الرفض' : 'Reason for rejection'}
+                  </div>
+                  <p className="decision-note-missing">
+                    {lang
+                      ? 'لم يُسجَّل سبب — رُفض قبل أن يصبح السبب إلزامياً.'
+                      : 'No reason was recorded — rejected before a reason was required.'}
+                  </p>
+                </div>
+              ) : null}
             </div>
             <div className="mf">
-              {session?.role === 'Admin' && (
-                <button className="btn red" onClick={() => removeTestRegistration(rec.ref)}><Trash2 size={14} /> {lang ? 'حذف التسجيل' : 'Delete registration'}</button>
-              )}
               {['pending', 'failed'].includes(rec.status || 'pending') && canEdit('enrollments') ? (
                 <>
-                  <button className="btn red" onClick={() => reject(rec.ref)}><XCircle size={14} /> {lang ? 'رفض' : 'Reject'}</button>
+                  <button className="btn red" onClick={() => { setRejecting(rec.ref); setRejectReason(''); setRejectError(''); }}><XCircle size={14} /> {lang ? 'رفض' : 'Reject'}</button>
                   <button className="btn" onClick={() => approve(rec.ref)}><CheckCircle size={14} /> {rec.status === 'failed' ? (lang ? 'إعادة المحاولة' : 'Retry approval') : (lang ? 'اعتماد' : 'Approve')}</button>
                 </>
               ) : rec.status === 'processing' ? (
@@ -251,6 +325,66 @@ export default function EnrollmentsPage() {
           </div>
         </div>
       )}
+      {rejecting && (
+        <div className="overlay" role="dialog" aria-modal="true" aria-labelledby="reject-title"
+          onClick={e => e.target === e.currentTarget && closeReject()}>
+          <form className="modal reject-modal"
+            onSubmit={e => { e.preventDefault(); confirmReject(); }}
+            onKeyDown={e => { if (e.key === 'Escape') closeReject(); }}>
+            <div className="mh">
+              <span className="sefbadge">{rejecting}</span>
+              <h3 id="reject-title">{lang ? 'سبب الرفض' : 'Reason for rejection'}</h3>
+              <span className="x" onClick={closeReject}>&times;</span>
+            </div>
+
+            <div className="mb">
+              {/* The big modal is hidden behind this, so say who is being
+                  refused rather than leaving only a reference number. */}
+              {rejectingRec && (
+                <div className="reject-subject">
+                  <XCircle size={16} />
+                  <span>
+                    {lang ? 'رفض تسجيل ' : 'Rejecting the registration of '}
+                    <b>{rejectingRec.owner?.name || (lang ? 'غير معروف' : 'unknown')}</b>
+                    {' — '}{rejectingRec.building} · <span className="mono">{rejectingRec.unit}</span>
+                  </span>
+                </div>
+              )}
+
+              <div className="fg">
+                <label htmlFor="reject-reason">{lang ? 'السبب' : 'Reason'}</label>
+                <textarea
+                  id="reject-reason" autoFocus rows={4} maxLength={500} value={rejectReason}
+                  className={rejectError ? 'has-error' : ''}
+                  onChange={e => { setRejectReason(e.target.value); if (rejectError) setRejectError(''); }}
+                  placeholder={lang
+                    ? 'مثال: صورة بطاقة الهوية غير واضحة.'
+                    : 'For example: the National ID photo is unreadable.'} />
+                <div className="reject-meta">
+                  <span className="hint" style={{ margin: 0 }}>
+                    {lang
+                      ? 'يُحفظ مع الطلب ويُعرض لمقدّمه.'
+                      : 'Saved with the registration and shown to the applicant.'}
+                  </span>
+                  <span className="mono">{rejectReason.trim().length}/500</span>
+                </div>
+                {rejectError ? <p className="reject-error">{rejectError}</p> : null}
+              </div>
+            </div>
+
+            <div className="mf">
+              <button type="button" className="btn ghost" onClick={closeReject}>
+                {lang ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button type="submit" className="btn red" disabled={rejectReason.trim().length < 3 || rejectBusy}>
+                {rejectBusy ? <LoaderCircle size={14} /> : <XCircle size={14} />}{' '}
+                {lang ? 'تأكيد الرفض' : 'Confirm rejection'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {licence ? (
         <div className="sv-backdrop" role="presentation" onClick={(event) => { event.stopPropagation(); setLicence(null); }}
           style={{ zIndex: 60 }}>

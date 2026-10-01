@@ -21,7 +21,7 @@ export class IncidentsService {
     if (dto.alertId) {
       const alert = await this.alertRepo.findOne({ where: { id: dto.alertId } });
       if (alert) {
-        alert.status = 'resolved'; alert.incidentId = saved.id;
+        alert.incidentId = saved.id;
         alert.log = [...(alert.log ?? []), ['system', `INCIDENT ${saved.id}`, new Date().toISOString()]];
         await this.alertRepo.save(alert);
       }

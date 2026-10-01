@@ -1,4 +1,4 @@
-import { cleanResidences, matches, residencesOf, unitCodesFor } from './residence';
+import { cleanResidences, matches, residencesOf, unitCodesFor, unitKeyOf } from './residence';
 
 describe('cleanResidences', () => {
   it('keeps complete rows and trims them', () => {
@@ -85,5 +85,22 @@ describe('matches', () => {
 
   it('an empty query matches everything', () => {
     expect(matches('   ', null, undefined)).toBe(true);
+  });
+});
+
+describe('unitKeyOf', () => {
+  it('treats the register and generated spellings as one door', () => {
+    expect(unitKeyOf('4.6C-1')).toBe(unitKeyOf('4.6-C-1'));
+    expect(unitKeyOf(' 4.6 c 1 ')).toBe(unitKeyOf('4.6C-1'));
+  });
+
+  it('still separates genuinely different units', () => {
+    expect(unitKeyOf('4.6C-1')).not.toBe(unitKeyOf('4.6C-11'));
+    expect(unitKeyOf('4.5C-1')).not.toBe(unitKeyOf('4.6C-1'));
+  });
+
+  it('is safe on missing values', () => {
+    expect(unitKeyOf(null)).toBe('');
+    expect(unitKeyOf(undefined)).toBe('');
   });
 });

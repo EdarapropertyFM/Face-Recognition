@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Bell, Brain, Check, LoaderCircle, Save, Settings, ShieldCheck, Trash2, TriangleAlert,
+  Bell, Brain, Check, LoaderCircle, Save, Settings, ShieldCheck, TriangleAlert,
 } from 'lucide-react';
 import { apiFetch } from '../api';
 
@@ -68,24 +68,6 @@ export default function SettingsPage() {
     } finally { setBusy(false); }
   };
 
-  const purgeNow = async () => {
-    if (!window.confirm(lang
-      ? 'حذف الرصدات والصور الأقدم من مدة الاحتفاظ؟ لا يمكن التراجع.'
-      : 'Delete sightings and images older than the retention period? This cannot be undone.')) return;
-    setBusy(true);
-    setError('');
-    try {
-      const response = await apiFetch('/settings/purge', { method: 'POST' });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || 'Purge failed.');
-      setNote(lang
-        ? `تم حذف ${data.detections} رصدة و${data.alerts} تنبيه.`
-        : `Removed ${data.detections} sighting(s) and ${data.alerts} alert(s).`);
-    } catch (purgeError) {
-      setError(purgeError.message);
-    } finally { setBusy(false); }
-  };
-
   if (loading) {
     return <div className="panel glass-panel"><div className="sub">
       <LoaderCircle size={15} /> {lang ? 'جاري التحميل…' : 'Loading settings…'}
@@ -111,12 +93,6 @@ export default function SettingsPage() {
           <h1><Settings size={24} style={{ verticalAlign: 'middle', color: 'var(--accent)', marginInlineEnd: 8, marginBottom: 4 }} />{t('nav.settings')}</h1>
           <div className="sub">{lang ? 'التعرف · الاحتفاظ · التنبيهات' : 'recognition · retention · alerts'}</div>
         </div>
-        <div className="grow" />
-        <button className="btn" disabled={!dirty || busy} onClick={save}
-          style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {busy ? <LoaderCircle size={15} /> : <Save size={15} />}
-          {lang ? 'حفظ' : 'Save changes'}
-        </button>
       </div>
 
       {error ? <div className="note" style={{ color: 'var(--red)', borderColor: 'var(--red)' }}>{error}</div> : null}
@@ -199,9 +175,21 @@ export default function SettingsPage() {
                 ? 'وجوه الغرباء وصورها تُحذف نهائياً بعد هذه المدة. الحذف يعمل كل ساعة.'
                 : 'Stranger faces and their saved images are deleted permanently after this. The purge runs hourly.'}
             </div>
-            <button className="btn ghost sm" disabled={busy} onClick={purgeNow}
-              style={{ marginTop: 10, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Trash2 size={13} /> {lang ? 'تشغيل الحذف الآن' : 'Run purge now'}
+          </div>
+
+          {/* Saves the whole page, so it sits at the foot of the last panel
+              rather than floating between the two columns. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12,
+                        marginTop: 22, paddingTop: 16, borderTop: '1px solid var(--glass-border)' }}>
+            <span className="hint" style={{ margin: 0 }}>
+              {dirty
+                ? (lang ? 'تغييرات غير محفوظة' : 'Unsaved changes')
+                : (lang ? 'كل التغييرات محفوظة' : 'All changes saved')}
+            </span>
+            <button className="btn" disabled={!dirty || busy} onClick={save}
+              style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {busy ? <LoaderCircle size={15} /> : <Save size={15} />}
+              {lang ? 'حفظ' : 'Save changes'}
             </button>
           </div>
         </div>

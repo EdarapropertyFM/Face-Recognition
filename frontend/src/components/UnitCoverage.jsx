@@ -83,7 +83,16 @@ export default function UnitCoverage({ embedded = false }) {
         `/units?q=${encodeURIComponent(search)}&scope=${encodeURIComponent(searchScope)}`);
       if (!response.ok) throw new Error('Could not load units.');
       const result = await response.json();
-      setData({ projects: result.projects ?? [], totals: result.totals ?? null });
+      // "Unassigned" is not a project: it is where enrolments land when
+      // their building belongs to none. Showing it as a peer of a real
+      // project overstated the project count and added a row nobody can act
+      // on from here.
+      const projects = (result.projects ?? []).filter((row) => row.project !== 'Unassigned');
+      const dropped = (result.projects ?? []).length - projects.length;
+      const totals = result.totals
+        ? { ...result.totals, projects: Math.max(0, (result.totals.projects ?? 0) - dropped) }
+        : null;
+      setData({ projects, totals });
       setLoadError('');
     } catch (error) {
       setLoadError(error.message || 'Could not load units.');
@@ -232,12 +241,18 @@ export default function UnitCoverage({ embedded = false }) {
         <div><h1>{t('nav.units')}</h1><div className="sub">{t('units.subtitle')}</div></div>
       </div>}
 
-      <div className="kpis">
-        <Kpi icon={<Layers size={18} />} tone="blue" label={t('units.projects')} value={totals.projects} />
-        <Kpi icon={<Building2 size={18} />} tone="blue" label={t('units.buildings')} value={totals.buildings} />
-        <Kpi icon={<Home size={18} />} tone="blue" label={t('units.occupied')} value={totals.occupiedUnits}
-          hint={totals.totalUnits ? `of ${totals.totalUnits}` : t('units.unknown_total')} />
-        <Kpi icon={<CheckCircle size={18} />} tone="green" label={t('units.enrolled')} value={totals.people} />
+      {/* A compact strip rather than four tall cards: these are four small
+          numbers, and as full KPI tiles they filled the screen before the
+          content the page is actually for. */}
+      <div className="cov-summary">
+        <div className="cov-a"><Layers size={15} /><b>{totals.projects}</b><span>{t('units.projects')}</span></div>
+        <div className="cov-b"><Building2 size={15} /><b>{totals.buildings}</b><span>{t('units.buildings')}</span></div>
+        <div className="cov-c">
+          <Home size={15} />
+          <b>{totals.occupiedUnits}<small>{totals.totalUnits ? ` / ${totals.totalUnits}` : ''}</small></b>
+          <span>{t('units.occupied')}</span>
+        </div>
+        <div className="cov-d"><CheckCircle size={15} /><b>{totals.people}</b><span>{t('units.enrolled')}</span></div>
       </div>
 
       <div className="unit-search">

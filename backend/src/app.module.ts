@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 // Modules
 import { UsersModule } from './users/users.module';
+import { RolesModule } from './roles/roles.module';
 import { ReportsModule } from './reports/reports.module';
 import { DetectionsModule } from './detections/detections.module';
 import { SettingsModule } from './settings/settings.module';
@@ -37,6 +38,7 @@ import { RealtimeModule } from './realtime/realtime.module';
       synchronize: process.env.DB_SYNCHRONIZE === 'true',
     }),
     UsersModule,
+    RolesModule,
     FacesModule,
     AlertsModule,
     IncidentsModule,

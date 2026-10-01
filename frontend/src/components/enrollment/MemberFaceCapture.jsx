@@ -63,7 +63,10 @@ export default function MemberFaceCapture({ memberName, initialCaptures, onCaptu
             <Camera size={15} /> Try camera again
           </button>
         )}
-        {(captures.length > 0 || duplicate) && !enrolling && (
+        {/* Starting over is a way out of a problem, not a choice to offer on
+            success. Once all three photos pass the quality gate there is
+            nothing to fix, so the only action left is Done. */}
+        {(duplicate || (captures.length > 0 && !complete)) && !enrolling && (
           <button type="button" className="enrollment-button secondary" onClick={restartCapture}>
             <RefreshCw size={15} /> {duplicate ? 'Try another person' : 'Start over'}
           </button>

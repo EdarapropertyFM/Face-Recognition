@@ -1,7 +1,8 @@
 import {
   ArrayMaxSize, IsArray, IsBoolean, IsInt, IsObject, IsOptional, IsString, Max, MaxLength,
-  Min, MinLength,
+  Min, MinLength, ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateProjectDto {
   @IsString() @MinLength(2) @MaxLength(120)
@@ -42,4 +43,26 @@ export class CreateBuildingDto {
   /** Registered owner name per unit code. */
   @IsOptional() @IsObject()
   unitOwners?: Record<string, string>;
+}
+
+export class BulkBuildingsDto {
+  /**
+   * The caller sends the fully expanded list rather than a pattern: the
+   * admin panel previews exactly which codes it is about to create, and
+   * what is previewed is what gets sent.
+   */
+  @IsArray() @ArrayMaxSize(500)
+  @ValidateNested({ each: true }) @Type(() => CreateBuildingDto)
+  buildings: CreateBuildingDto[];
+}
+
+export class AddUnitsDto {
+  @IsArray() @ArrayMaxSize(10000) @IsString({ each: true }) @MaxLength(64, { each: true })
+  units: string[];
+}
+
+export class SetUnitOwnerDto {
+  /** Null or empty clears the owner, which is how a unit is vacated. */
+  @IsOptional() @IsString() @MaxLength(160)
+  owner?: string | null;
 }

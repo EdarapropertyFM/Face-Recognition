@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Not, Repository } from 'typeorm';
 import { Camera } from '../cameras/entities/camera.entity';
@@ -8,14 +8,15 @@ import { Face } from '../faces/entities/face.entity';
 import { UnitsService } from '../units/units.service';
 import { Enrollment } from '../enrollments/entities/enrollment.entity';
 import { Detection } from '../detections/entities/detection.entity';
+import { User } from '../users/entities/user.entity';
 import { isStrangerId } from '../detections/subject';
 
 @Injectable()
 export class DashboardService {
-  constructor(@InjectRepository(Camera) private cameras: Repository<Camera>, @InjectRepository(Alert) private alerts: Repository<Alert>, @InjectRepository(Incident) private incidents: Repository<Incident>, @InjectRepository(Face) private faces: Repository<Face>, private units: UnitsService, @InjectRepository(Enrollment) private enrollments: Repository<Enrollment>, @InjectRepository(Detection) private detections: Repository<Detection>) { }
+  constructor(@InjectRepository(Camera) private cameras: Repository<Camera>, @InjectRepository(Alert) private alerts: Repository<Alert>, @InjectRepository(Incident) private incidents: Repository<Incident>, @InjectRepository(Face) private faces: Repository<Face>, private units: UnitsService, @InjectRepository(Enrollment) private enrollments: Repository<Enrollment>, @InjectRepository(Detection) private detections: Repository<Detection>, @InjectRepository(User) private users: Repository<User>) { }
   async summary() {
-    const [totalCameras, onlineCameras, newAlerts, openIncidents, alerts, incidents, buildingList, today, pendingEnrollments, enrolledPeople] = await Promise.all([
-      this.cameras.count(), this.cameras.count({ where: { status: 'online' } }), this.alerts.count({ where: { status: 'new' } }),
+    const [totalCameras, onlineCameras, totalAlerts, openIncidents, alerts, incidents, buildingList, today, pendingEnrollments, enrolledPeople] = await Promise.all([
+      this.cameras.count(), this.cameras.count({ where: { status: 'online' } }), this.alerts.count(),
       this.incidents.createQueryBuilder('incident').where('incident.status != :status', { status: 'closed' }).getCount(),
       this.alerts.find({ order: { when: 'DESC' }, take: 3 }), this.incidents.find({ order: { when: 'DESC' }, take: 4 }), this.buildingOverview(),
       this.seenToday(), this.enrollments.count({ where: { status: 'pending' } }),
@@ -25,7 +26,7 @@ export class DashboardService {
     const alertFaces = faceIds.length ? await this.faces.createQueryBuilder('face').where('face.id IN (:...faceIds)', { faceIds }).getMany() : [];
     return {
       metrics: {
-        totalCameras, onlineCameras, newAlerts, openIncidents,
+        totalCameras, onlineCameras, totalAlerts, openIncidents,
         ...today, pendingEnrollments, enrolledPeople,
       },
       alerts, incidents, faces: alertFaces, buildings: buildingList,
@@ -78,13 +79,37 @@ export class DashboardService {
     })));
   }
 
-  async badges() {
+  /**
+   * `username` scopes the alert badge to what this user has not looked at
+   * yet. Without it the count is every open alert, which is what the bell
+   * showed before: clicking it navigated to the list but the number stayed.
+   */
+  async badges(username?: string) {
+    const seenAt = username
+      ? (await this.users.findOne({ where: { u: username } }))?.alertsSeenAt
+      : null;
+    // Alerts have no triage state any more, so "unseen" is purely a question
+    // of whether this user has opened their notifications since it arrived.
+    const unseenAlerts = this.alerts.createQueryBuilder('alert');
+    // `when` is an ISO-8601 string, which orders lexicographically.
+    if (seenAt) unseenAlerts.where('alert.when > :seenAt', { seenAt });
+
     const [alerts, enrollments, incidents, facedb] = await Promise.all([
-      this.alerts.count({ where: { status: 'new' } }),
+      unseenAlerts.getCount(),
       this.enrollments.count({ where: { status: 'pending' } }),
       this.incidents.createQueryBuilder('incident').where('incident.status != :status', { status: 'closed' }).getCount(),
       this.faces.count()
     ]);
     return { alerts, enrollments, incidents, facedb };
+  }
+
+  /** Marks every alert raised up to now as seen by this user. */
+  async markAlertsSeen(username: string) {
+    const seenAt = new Date().toISOString();
+    const result = await this.users.update({ u: username }, { alertsSeenAt: seenAt });
+    // No row updated means the marker was not stored, and the badge would
+    // silently come straight back. Say so rather than report success.
+    if (!result.affected) throw new NotFoundException(`No such user: ${username}`);
+    return { alertsSeenAt: seenAt };
   }
 }

@@ -38,26 +38,19 @@ const detections = DETECTIONS.map((d, i) => ({
 
 const byFace = (id) => detections.filter((d) => d.face === id);
 
-/** Alerts page: latest sighting per person per camera, as the live system would raise them. */
+/** Alerts page: one notification per person per camera, as the live system raises them. */
 export function demoAlerts() {
   const seen = new Set();
-  const statuses = ['new', 'new', 'ack', 'new', 'actioned', 'new', 'resolved', 'new', 'false'];
   return detections.filter((d) => {
     const key = `${d.face}|${d.cam}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
-  }).slice(0, 14).map((d, i) => {
-    const status = statuses[i % statuses.length];
-    const log = [['ai', 'CREATED', d.when]];
-    if (status !== 'new') log.push(['Officer 07', status === 'false' ? 'FALSE' : 'ACK', new Date(Date.parse(d.when) + 60000).toISOString()]);
-    if (['actioned', 'resolved'].includes(status)) log.push(['Officer 07', 'ACTIONED', new Date(Date.parse(d.when) + 180000).toISOString()]);
-    if (status === 'resolved') log.push(['Officer 07', 'RESOLVED', new Date(Date.parse(d.when) + 600000).toISOString()]);
-    return {
-      id: `DEMO-A${i + 1}`, face: d.face, cam: d.cam, zone: d.zone, when: d.when, conf: d.conf, status, log,
-      subject: subject(FACES.find((f) => f.id === d.face)), camera: d.camera,
-    };
-  });
+  }).slice(0, 14).map((d, i) => ({
+    id: `DEMO-A${i + 1}`, face: d.face, cam: d.cam, zone: d.zone, when: d.when, conf: d.conf,
+    log: [['ai', 'CREATED', d.when]],
+    subject: subject(FACES.find((f) => f.id === d.face)), camera: d.camera,
+  }));
 }
 
 /** Track & Trace person picker. */

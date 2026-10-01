@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Building2, Camera, CirclePlus, Clock, Cpu, Hash, Layers, List, LoaderCircle, MapPin, MapPinned, PlugZap, Power, Settings, ShieldCheck, Trash2, Video, Wifi, WifiOff, X } from 'lucide-react';
+import { Building2, Camera, CirclePlus, Cpu, Hash, Layers, List, LoaderCircle, MapPin, MapPinned, PlugZap, Power, Settings, ShieldCheck, Trash2, Video, Wifi, WifiOff, X } from 'lucide-react';
 import { ZONES } from '../store';
 import { apiFetch } from '../api';
 import { useAuth } from '../context/useAuth';
@@ -27,7 +27,8 @@ export default function CamerasPage() {
   const [cameras, setCameras] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [zoneFilter, setZoneFilter] = useState(-1);
+  const [projectFilter, setProjectFilter] = useState('');
+  const [buildingFilter, setBuildingFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState(null);
@@ -72,18 +73,44 @@ export default function CamerasPage() {
   const isDvrMode = form.sourceMode === 'dvr-all' || form.sourceMode === 'dvr';
   const importingWholeDvr = form.sourceMode === 'dvr-all';
 
-  const zoneName = (camera) => camera.location || ZONES[camera.zone]?.[lang] || `Zone ${camera.zone}`;
+  /** Cameras with no building yet still have to be counted somewhere. */
+  const UNPLACED = useMemo(() => (lang ? 'بدون مبنى' : 'No building'), [lang]);
   // 'health' is the stored status aged against its last check: a camera
   // tested days ago is 'unknown', not 'online'. Counting the stored status
   // instead reported feeds as live while the DVR was unplugged.
   const health = (camera) => camera.health ?? camera.status;
   const onlineTotal = cameras.filter((camera) => health(camera) === 'online').length;
-  const unknownTotal = cameras.filter((camera) => health(camera) === 'unknown').length;
+  // Project and building, not zone: every other screen groups by building,
+  // and a zone number means nothing to whoever is looking at this one.
+  const projectOptions = useMemo(
+    () => [...new Set(cameras.map((camera) => camera.project).filter(Boolean))].sort(), [cameras]);
+  const buildingOptions = useMemo(() => [...new Set(cameras
+    .filter((camera) => !projectFilter || camera.project === projectFilter)
+    .map((camera) => camera.buildingCode).filter(Boolean))].sort(), [cameras, projectFilter]);
+
+  const inScope = useCallback((camera) =>
+    (!projectFilter || camera.project === projectFilter)
+    && (!buildingFilter || camera.buildingCode === buildingFilter), [projectFilter, buildingFilter]);
+
   const filtered = useMemo(() => cameras.filter((camera) =>
-    (zoneFilter < 0 || camera.zone === zoneFilter) && (statusFilter === 'all' || health(camera) === statusFilter) &&
-    `${camera.id} ${camera.displayName || ''} ${camera.location || ''}`.toLowerCase().includes(search.toLowerCase())
-  ), [cameras, search, statusFilter, zoneFilter]);
-  const byZone = ZONES.map((zone, index) => ({ name: zone[lang], online: cameras.filter((camera) => camera.zone === index && health(camera) === 'online').length, offline: cameras.filter((camera) => camera.zone === index && health(camera) !== 'online').length }));
+    inScope(camera) && (statusFilter === 'all' || health(camera) === statusFilter) &&
+    `${camera.id} ${camera.displayName || ''} ${camera.location || ''} ${camera.buildingCode || ''}`
+      .toLowerCase().includes(search.toLowerCase())
+  ), [cameras, search, statusFilter, inScope]);
+
+  const byBuilding = useMemo(() => {
+    const scoped = cameras.filter(inScope);
+    const codes = [...new Set(scoped.map((camera) => camera.buildingCode || UNPLACED))].sort();
+    return codes.map((code) => {
+      const rows = scoped.filter((camera) => (camera.buildingCode || UNPLACED) === code);
+      return {
+        code,
+        project: rows[0]?.project ?? null,
+        online: rows.filter((camera) => health(camera) === 'online').length,
+        total: rows.length,
+      };
+    }).sort((a, b) => b.total - a.total);
+  }, [cameras, inScope, UNPLACED]);
 
   const saveCamera = async (event) => {
     event.preventDefault();
@@ -186,11 +213,54 @@ export default function CamerasPage() {
   return <>
     <div className="ph cameras-page-header"><div><h1>{t('nav.cameras')}</h1><div className="sub">{onlineTotal} {t('common.online')} · {cameras.length - onlineTotal} offline (of {cameras.length})</div></div><div className="grow" />{canEdit('cameras') && <button className="btn camera-add-button" onClick={openCreate}><span className="camera-add-icon"><CirclePlus size={18} /></span><span>{lang ? 'إضافة كاميرا' : 'Add camera'}<small>{lang ? 'إعداد مصدر بث جديد' : 'Configure a new stream'}</small></span></button>}</div>
     {loadError && <div className="note" style={{ borderColor: 'var(--red)', color: 'var(--red)' }}>{loadError}</div>}
-    <div className="kpis">{[[Video, 'Total Cameras', cameras.length, 'System-wide', 'blue'], [Wifi, 'Online', onlineTotal, 'Active feeds', 'green'], [WifiOff, 'Offline', cameras.filter((camera) => health(camera) === 'offline').length, 'Confirmed down', 'red'], [Clock, 'Unchecked', unknownTotal, 'Not verified recently', 'amber'], [MapPin, 'Zones', new Set(cameras.map((camera) => camera.zone)).size, 'Monitored areas', 'amber']].map(([Icon, label, value, note, color]) => <div className="kpi-card glass-panel" key={label}><div className="kpi-header"><span className={`kpi-icon ${color}`}><Icon size={18} /></span><div className="lab">{label}</div></div><div className="kpi-body"><div className="val a">{value}</div><div className="tr">{note}</div></div></div>)}</div>
+    <div className="kpis">{[[Video, 'Total Cameras', cameras.length, 'System-wide', 'blue'], [Wifi, 'Online', onlineTotal, 'Active feeds', 'green'], [WifiOff, 'Offline', cameras.filter((camera) => health(camera) === 'offline').length, 'Confirmed down', 'red'], [Building2, 'Buildings', buildingOptions.length, 'With cameras', 'amber']].map(([Icon, label, value, note, color]) => <div className="kpi-card glass-panel" key={label}><div className="kpi-header"><span className={`kpi-icon ${color}`}><Icon size={18} /></span><div className="lab">{label}</div></div><div className="kpi-body"><div className="val a">{value}</div><div className="tr">{note}</div></div></div>)}</div>
     <div className="two">
-      <div className="panel glass-panel"><h3><MapPin size={18} color="var(--accent)" /> {lang ? 'حسب الموقع' : 'By location'}</h3><table><thead><tr><th>{lang ? 'المنطقة' : 'Zone'}</th><th>Online</th><th>Offline</th></tr></thead><tbody>{byZone.map((zone) => <tr key={zone.name}><td>{zone.name}</td><td>{zone.online}</td><td>{zone.offline || '—'}</td></tr>)}</tbody></table></div>
-      <div className="panel glass-panel"><h3><List size={18} color="var(--green)" /> {lang ? 'قائمة الكاميرات' : 'Camera list'}</h3><div className="toolbar"><div className="search"><input type="text" placeholder={lang ? 'بحث…' : 'Search…'} value={search} onChange={(event) => setSearch(event.target.value)} /></div><select value={zoneFilter} onChange={(event) => setZoneFilter(Number(event.target.value))}><option value={-1}>All zones</option>{ZONES.map((zone, index) => <option value={index} key={zone[0]}>{zone[lang]}</option>)}</select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">All</option><option value="online">Online</option><option value="offline">Offline</option><option value="unknown">Unchecked</option></select></div>
-        {loading ? <div className="note"><LoaderCircle size={14} /> Loading cameras…</div> : <div style={{ maxHeight: 410, overflowY: 'auto' }}><table><thead><tr><th>Camera</th><th>Location</th><th>Status</th><th>Source</th><th /></tr></thead><tbody>{filtered.map((camera) => <tr key={camera.id}><td><b>{camera.displayName || camera.id}</b><div className="mono">{camera.id}</div></td><td>{zoneName(camera)}</td><td><span className={`tag ${health(camera) === 'unknown' ? 'unknown' : health(camera)}`}>{health(camera)}</span>{camera.statusStale && camera.status === 'online' && <div className="sub" style={{ fontSize: 10, marginTop: 4 }}>{lang ? 'لم يتم التحقق مؤخرًا — اضغط اختبار' : 'not verified recently — run Test'}</div>}{camera.lastError && <div style={{ color: 'var(--red)', fontSize: 10, marginTop: 4 }}>{camera.lastError}</div>}</td><td><span className={`tag ${camera.rtspConfigured ? 'closed' : 'unknown'}`}>{camera.rtspConfigured ? `${camera.codec} · configured` : 'not configured'}</span></td><td>{canEdit('cameras') && <button className="btn ghost sm" onClick={() => openEdit(camera)} title="Configure"><Settings size={14} /></button>}</td></tr>)}</tbody></table>{!filtered.length && <div className="note">{lang ? 'لا توجد كاميرات مطابقة.' : 'No matching cameras.'}</div>}</div>}
+      <div className="panel glass-panel">
+        <h3><MapPin size={18} color="var(--accent)" /> {lang ? 'حسب الموقع' : 'By location'}</h3>
+
+        <div className="cam-scope">
+          <select value={projectFilter}
+            onChange={(event) => { setProjectFilter(event.target.value); setBuildingFilter(''); }}>
+            <option value="">{lang ? 'كل المشاريع' : 'All projects'}</option>
+            {projectOptions.map((name) => <option key={name} value={name}>{name}</option>)}
+          </select>
+          <select value={buildingFilter} onChange={(event) => setBuildingFilter(event.target.value)}>
+            <option value="">{lang ? 'كل المباني' : 'All buildings'}</option>
+            {buildingOptions.map((code) => <option key={code} value={code}>{code}</option>)}
+          </select>
+        </div>
+
+        <table>
+          <thead><tr>
+            <th>{lang ? 'المبنى' : 'Building'}</th>
+            <th>{lang ? 'المشروع' : 'Project'}</th>
+            <th>{lang ? 'متصلة' : 'Online'}</th>
+          </tr></thead>
+          <tbody>
+            {byBuilding.length ? byBuilding.map((row) => (
+              <tr key={row.code}>
+                <td><b>{row.code}</b></td>
+                <td className="sub">{row.project || '—'}</td>
+                <td>
+                  <span className="cam-online">
+                    <span className="cam-online-bar">
+                      <span style={{ width: `${Math.round((row.online / row.total) * 100)}%`,
+                        background: row.online === row.total ? 'var(--green)' : 'var(--red)' }} />
+                    </span>
+                    <span className="mono">{row.online}/{row.total}</span>
+                  </span>
+                </td>
+              </tr>
+            )) : (
+              <tr><td colSpan={3} className="sub" style={{ padding: 14 }}>
+                {lang ? 'لا توجد كاميرات.' : 'No cameras here.'}
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div className="panel glass-panel"><h3><List size={18} color="var(--green)" /> {lang ? 'قائمة الكاميرات' : 'Camera list'}</h3><div className="toolbar"><div className="search"><input type="text" placeholder={lang ? 'بحث…' : 'Search…'} value={search} onChange={(event) => setSearch(event.target.value)} /></div><select value={projectFilter} onChange={(event) => { setProjectFilter(event.target.value); setBuildingFilter(''); }}><option value="">{lang ? 'كل المشاريع' : 'All projects'}</option>{projectOptions.map((name) => <option key={name} value={name}>{name}</option>)}</select><select value={buildingFilter} onChange={(event) => setBuildingFilter(event.target.value)}><option value="">{lang ? 'كل المباني' : 'All buildings'}</option>{buildingOptions.map((code) => <option key={code} value={code}>{code}</option>)}</select><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}><option value="all">{lang ? 'كل الحالات' : 'All statuses'}</option><option value="online">{lang ? 'متصلة' : 'Online'}</option><option value="offline">{lang ? 'غير متصلة' : 'Offline'}</option></select></div>
+        {loading ? <div className="note"><LoaderCircle size={14} /> Loading cameras…</div> : <div style={{ maxHeight: 410, overflowY: 'auto' }}><table><thead><tr><th>Camera</th><th>Location</th><th>Status</th><th>Source</th><th /></tr></thead><tbody>{filtered.map((camera) => <tr key={camera.id}><td><b>{camera.displayName || camera.id}</b>{camera.channel ? <div className="sub" style={{ fontSize: 11 }}>{lang ? 'قناة' : 'Channel'} {camera.channel}</div> : null}</td><td><b>{camera.buildingCode || UNPLACED}</b>{camera.location ? <div className="sub" style={{ fontSize: 11 }}>{camera.location}</div> : null}</td><td><span className={`tag ${health(camera) === 'unknown' ? 'unknown' : health(camera)}`}>{health(camera)}</span>{camera.statusStale && camera.status === 'online' && <div className="sub" style={{ fontSize: 10, marginTop: 4 }}>{lang ? 'لم يتم التحقق مؤخرًا — اضغط اختبار' : 'not verified recently — run Test'}</div>}{camera.lastError && <div style={{ color: 'var(--red)', fontSize: 10, marginTop: 4 }}>{camera.lastError}</div>}</td><td><span className={`tag ${camera.rtspConfigured ? 'closed' : 'unknown'}`}>{camera.rtspConfigured ? `${camera.codec} · configured` : 'not configured'}</span></td><td>{canEdit('cameras') && <button className="btn ghost sm" onClick={() => openEdit(camera)} title="Configure"><Settings size={14} /></button>}</td></tr>)}</tbody></table>{!filtered.length && <div className="note">{lang ? 'لا توجد كاميرات مطابقة.' : 'No matching cameras.'}</div>}</div>}
       </div>
     </div>
     {editing && <div className="overlay camera-overlay" onClick={(event) => event.target === event.currentTarget && setEditing(null)}><form className="modal camera-modal" onSubmit={saveCamera}>

@@ -1,147 +1,283 @@
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Download, BarChart3, Map, PieChart, Info, TrendingUp, Users, Activity, ShieldAlert } from 'lucide-react';
-import { DETECTIONS, ZONES, PENDING_ENROLLMENTS } from '../store';
+import { BarChart3, Building2, Cctv, Clock, LoaderCircle, Search, ShieldAlert, Upload, UserCheck, UserX, Users, X } from 'lucide-react';
+import { apiFetch } from '../api';
+import { Columns, Bars, Donut, Stat, SERIES } from '../components/Charts';
+
+const RANGES = [
+  [1, 'اليوم', 'Today'],
+  [7, 'آخر ٧ أيام', 'Last 7 days'],
+  [30, 'آخر ٣٠ يوم', 'Last 30 days'],
+  [90, 'آخر ٩٠ يوم', 'Last 90 days'],
+];
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+/** One flat CSV of everything on the page, so the numbers can be audited. */
+function exportCsv(data, lang) {
+  const rows = [['Section', 'Key', 'Value']];
+  const { totals } = data;
+  rows.push(['Range', 'Days', data.range.days], ['Range', 'From', data.range.from.slice(0, 10)],
+    ['Range', 'To', data.range.to.slice(0, 10)]);
+  rows.push(['Totals', 'Detections', totals.sightings], ['Totals', 'People seen', totals.people],
+    ['Totals', 'Residents', totals.residents], ['Totals', 'Strangers', totals.strangers],
+    ['Totals', 'Recognition rate %', totals.recognitionRate ?? ''],
+    ['Totals', 'Cameras online', `${totals.cameras.online}/${totals.cameras.total}`],
+    ['Totals', 'Alerts', totals.alerts.total], ['Totals', 'Alerts per day', totals.alerts.perDay],
+    ['Totals', 'Enrolled faces', totals.faces.total],
+    ['Totals', 'Enrollments pending', totals.enrollments.pending]);
+  data.daily.forEach((day) => rows.push(['Daily', day.date,
+    `detections=${day.sightings};residents=${day.residents};strangers=${day.strangers};alerts=${day.alerts}`]));
+  data.hourly.forEach((hour) => rows.push(['Detections by hour', `${String(hour.hour).padStart(2, '0')}:00`, hour.sightings]));
+  data.byCamera.forEach((cam) => rows.push(['Camera', cam.name,
+    `detections=${cam.sightings};strangers=${cam.strangers};building=${cam.building ?? ''}`]));
+  totals.alerts.byCamera.forEach((cam) => rows.push(['Alerts by camera', cam.name, cam.count]));
+  totals.alerts.byHour.forEach((h) => rows.push(['Alerts by hour', `${String(h.hour).padStart(2, '0')}:00`, h.count]));
+  data.byBuilding.forEach((b) => rows.push(['Building', b.building, `detections=${b.sightings};strangers=${b.strangers}`]));
+
+  const csv = rows.map(cells => cells.map(cell => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(',')).join('\r\n');
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+  link.download = `stmc-report-${data.range.days}d-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  void lang;
+}
 
 export default function ReportsPage() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language === 'ar' ? 1 : 0;
+  const [days, setDays] = useState(30);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [project, setProject] = useState('');
+  const [building, setBuilding] = useState('');
+  const [search, setSearch] = useState('');
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
 
-  // 1. Detections by location
-  const byZone = ZONES.map((z, i) => ({
-    name: z[lang],
-    count: DETECTIONS.filter(d => d.zone === i).length,
-  })).sort((a, b) => b.count - a.count); // Sort by highest
-  const maxZone = Math.max(...byZone.map(x => x.count), 1);
+  useEffect(() => {
+    let live = true;
+    setData(null); setError('');
+    const scope = new URLSearchParams({ days: String(days) });
+    // An explicit window wins over the preset; the server reads it the same way.
+    if (from || to) { if (from) scope.set('from', from); if (to) scope.set('to', to); }
+    if (project) scope.set('project', project);
+    if (building) scope.set('building', building);
+    apiFetch(`/reports/analytics?${scope}`)
+      .then(res => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
+      .then(result => { if (live) setData(result); })
+      .catch(err => { if (live) setError(err.message); });
+    return () => { live = false; };
+  }, [days, from, to, project, building]);
 
-  // 2. Detections by type
-  const byType = [
-    { type: 'known',   label: lang ? 'مُلاّك ومقيمون' : 'Owners & Residents', color: 'var(--green)' },
-    { type: 'staff',   label: lang ? 'موظفو الأمن والخدمات' : 'Staff & Security', color: 'var(--accent)' },
-    { type: 'unknown', label: lang ? 'غرباء' : 'Strangers', color: 'var(--amber)' },
-  ].map(x => ({ ...x, count: DETECTIONS.filter(d => d.type === x.type).length }));
-  const maxType = Math.max(...byType.map(x => x.count), 1);
+  const totals = data?.totals;
+  const hit = (...fields) => !search
+    || fields.some(f => String(f ?? '').toLowerCase().includes(search.toLowerCase()));
+  const camerasShown = (data?.byCamera ?? []).filter(c => hit(c.name, c.building, c.project));
+  const buildingsShown = (data?.byBuilding ?? []).filter(b => hit(b.building));
 
-  // 3. Hourly Detection Trend (Mock)
-  // We'll group detections by 4-hour blocks for a cleaner UI
-  const timeBlocks = [
-    { label: '00:00 - 04:00', filter: h => h >= 0 && h < 4 },
-    { label: '04:00 - 08:00', filter: h => h >= 4 && h < 8 },
-    { label: '08:00 - 12:00', filter: h => h >= 8 && h < 12 },
-    { label: '12:00 - 16:00', filter: h => h >= 12 && h < 16 },
-    { label: '16:00 - 20:00', filter: h => h >= 16 && h < 20 },
-    { label: '20:00 - 24:00', filter: h => h >= 20 && h < 24 },
-  ];
-  const byTime = timeBlocks.map(tb => {
-    const count = DETECTIONS.filter(d => tb.filter(new Date(d.ts).getHours())).length;
-    return { label: tb.label, count };
-  });
-  const maxTime = Math.max(...byTime.map(x => x.count), 1);
-
-  // KPIs
-  const totalDetections = DETECTIONS.length;
-  const pendingEnroll = PENDING_ENROLLMENTS.length;
+  const peopleSlices = useMemo(() => totals ? [
+    { label: lang ? 'مقيمون معروفون' : 'Known residents', value: totals.residents, color: SERIES[0] },
+    { label: lang ? 'غرباء' : 'Strangers', value: totals.strangers, color: SERIES[1] },
+  ] : [], [totals, lang]);
 
   return (
     <>
       <div className="ph">
         <div>
-          <h1><BarChart3 size={24} style={{ verticalAlign: 'middle', color: 'var(--accent)', marginRight: 8, marginBottom: 4 }} />{t('nav.reports')}</h1>
-          <div className="sub">{lang ? 'لوحة المعلومات التحليلية للأمن الشامل' : 'Comprehensive Security Analytics Dashboard'}</div>
+          <h1><BarChart3 size={24} style={{ verticalAlign: 'middle', color: 'var(--accent)', marginInlineEnd: 8, marginBottom: 4 }} />{t('nav.reports')}</h1>
+          <div className="sub">
+            {data
+              ? `${data.range.from.slice(0, 10)} → ${data.range.to.slice(0, 10)}`
+              : (lang ? 'تحليلات النظام' : 'System analytics')}
+          </div>
         </div>
       </div>
 
-      <div className="toolbar" style={{ marginBottom: 20 }}>
+      {/* Filters sit open above the report: they decide what every number
+          below means, so hiding them behind a toggle hides the context. */}
+      <div className="rep-filters">
+        <div className="chips">
+          {RANGES.map(([value, ar, en]) => (
+            <span key={value} className={`chip ${!from && !to && days === value ? 'on' : ''}`}
+              onClick={() => { setDays(value); setFrom(''); setTo(''); }}>
+              {lang ? ar : en}
+            </span>
+          ))}
+        </div>
+
+        {/* Any window, not just the presets. Choosing a date takes over from
+            the chips; clearing both hands control back to them. */}
+        <div className="rep-dates">
+          <input type="date" value={from} max={to || todayIso()}
+            aria-label={lang ? 'من تاريخ' : 'From date'}
+            onChange={e => setFrom(e.target.value)} />
+          <span className="rep-dates-sep">→</span>
+          <input type="date" value={to} min={from || undefined} max={todayIso()}
+            aria-label={lang ? 'إلى تاريخ' : 'To date'}
+            onChange={e => setTo(e.target.value)} />
+        </div>
+
+        <div className="search">
+          <Search size={14} />
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder={lang ? 'بحث بالكاميرا أو المبنى…' : 'Search camera or building…'} />
+        </div>
+
+        <select value={project} onChange={e => { setProject(e.target.value); setBuilding(''); }}>
+          <option value="">{lang ? 'كل المشاريع' : 'All projects'}</option>
+          {(data?.filters?.projects ?? []).map(name => <option key={name} value={name}>{name}</option>)}
+        </select>
+
+        <select value={building} onChange={e => setBuilding(e.target.value)}>
+          <option value="">{lang ? 'كل المباني' : 'All buildings'}</option>
+          {(data?.filters?.buildings ?? []).map(code => <option key={code} value={code}>{code}</option>)}
+        </select>
+
+        {(project || building || search || from || to) && (
+          <button className="btn ghost sm"
+            onClick={() => { setProject(''); setBuilding(''); setSearch(''); setFrom(''); setTo(''); }}>
+            <X size={13} /> {lang ? 'مسح' : 'Clear'}
+          </button>
+        )}
+
         <div className="grow" />
-        <button className="btn" style={{ display: 'flex', alignItems: 'center', gap: 6 }}><BarChart3 size={14} /> {lang ? 'توليد تقرير مفصل' : 'Generate Full Report'}</button>
-        <button className="btn ghost" style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Download size={14} /> Export CSV</button>
+        <button className="btn ghost sm" disabled={!data} onClick={() => exportCsv(data, lang)}>
+          <Upload size={14} /> {lang ? 'تصدير CSV' : 'Export CSV'}
+        </button>
       </div>
 
-      {/* KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
-        <div className="panel glass-panel" style={{ padding: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-            <div style={{ padding: 10, background: 'rgba(0,164,196,0.15)', borderRadius: 10, color: 'var(--accent)' }}><Activity size={20} /></div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase' }}>{lang ? 'إجمالي الاكتشافات' : 'Total Detections'}</div>
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 800, color: '#fff' }}>{totalDetections}</div>
-          <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 8 }}>+12% vs last week</div>
+      {error ? (
+        <div className="panel glass-panel" style={{ padding: 16, color: 'var(--red)' }}>
+          {lang ? 'تعذر تحميل التقرير: ' : 'Could not load the report: '}{error}
         </div>
-        <div className="panel glass-panel" style={{ padding: '20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-            <div style={{ padding: 10, background: 'rgba(46,204,113,0.15)', borderRadius: 10, color: 'var(--green)' }}><Users size={20} /></div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase' }}>{lang ? 'طلبات تسجيل معلقة' : 'Pending Enrollments'}</div>
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 800, color: '#fff' }}>{pendingEnroll}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>Awaiting validation</div>
+      ) : !data ? (
+        <div className="panel glass-panel" style={{ padding: 24 }}>
+          <div className="sub"><LoaderCircle size={15} /> {lang ? 'جاري الحساب…' : 'Calculating…'}</div>
         </div>
-      </div>
-
-      <div className="two">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Trend Analysis */}
-          <div className="panel glass-panel">
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><TrendingUp size={18} color="var(--accent)" /> {lang ? 'كثافة الاكتشافات على مدار اليوم' : 'Detection Density (24h)'}</h3>
-            <div style={{ marginTop: 16, display: 'flex', alignItems: 'flex-end', gap: 8, height: 160, paddingBottom: 24, borderBottom: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}>
-              {byTime.map((tb, i) => (
-                <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, height: '100%', justifyContent: 'flex-end' }}>
-                  <div style={{ width: '100%', maxWidth: 40, height: `${(tb.count / maxTime) * 100}%`, background: 'rgba(0,164,196,0.3)', borderRadius: '6px 6px 0 0', border: '1px solid rgba(0,164,196,0.5)', borderBottom: 'none', position: 'relative' }}>
-                    <div style={{ position: 'absolute', top: -24, left: '50%', transform: 'translateX(-50%)', fontSize: 11, fontWeight: 600, color: 'var(--accent)' }}>{tb.count}</div>
-                  </div>
-                  <div style={{ position: 'absolute', bottom: 0, fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{tb.label.split(' - ')[0]}</div>
-                </div>
-              ))}
-            </div>
+      ) : (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: 14, marginBottom: 18 }}>
+            {/* Distinct people, not raw detections. A detection count rises
+                with how long somebody lingers, so it cannot be compared
+                between cameras or days; this can. */}
+            <Stat icon={<Users size={18} />} label={lang ? 'أشخاص شوهدوا' : 'People seen'}
+              value={totals.people.toLocaleString()}
+              hint={lang
+                ? `${Math.round(totals.people / data.range.days)} شخص يومياً في المتوسط`
+                : `${Math.round(totals.people / data.range.days).toLocaleString()}/day on average`} />
+            <Stat icon={<UserCheck size={18} />} label={lang ? 'تم التعرف عليهم' : 'Of those, identified'}
+              value={totals.residents.toLocaleString()} tone="var(--green)"
+              hint={totals.recognitionRate === null
+                ? (lang ? 'لا بيانات' : 'no data yet')
+                : `${totals.recognitionRate}% ${lang ? 'نسبة التعرّف' : 'recognition rate'}`} />
+            <Stat icon={<UserX size={18} />} label={lang ? 'غرباء' : 'Of those, strangers'}
+              value={totals.strangers.toLocaleString()} tone="var(--amber)"
+              hint={lang ? 'أشخاص مختلفون غير مسجلين' : 'distinct people not enrolled'} />
+            <Stat icon={<ShieldAlert size={18} />} label={lang ? 'التنبيهات' : 'Alerts raised'}
+              value={totals.alerts.total.toLocaleString()} tone="var(--red)"
+              hint={lang ? `${totals.alerts.perDay} يومياً` : `${totals.alerts.perDay}/day on average`} />
+            <Stat icon={<Cctv size={18} />} label={lang ? 'الكاميرات' : 'Cameras'}
+              value={`${totals.cameras.online}/${totals.cameras.total}`}
+              hint={totals.cameras.offline
+                ? `${totals.cameras.offline} ${lang ? 'غير متصل' : 'offline'}`
+                : (lang ? 'كلها متصلة' : 'all online')}
+              tone={totals.cameras.offline ? 'var(--red)' : 'var(--green)'} />
           </div>
 
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* By location */}
-          <div className="panel glass-panel">
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Map size={18} color="var(--purple)" /> {lang ? 'الاكتشافات حسب المنطقة' : 'Detections by Zone'}</h3>
-            <div style={{ marginTop: 16 }}>
-              {byZone.map((z, i) => (
-                <div key={i} style={{ marginBottom: 14 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                    <span style={{ color: 'var(--txt)' }}>{z.name}</span>
-                    <b style={{ color: '#fff' }}>{z.count}</b>
-                  </div>
-                  <div style={{ height: 8, background: 'var(--stat-bg)', borderRadius: 5, overflow: 'hidden', border: '1px solid var(--glass-border)' }}>
-                    <div style={{ height: '100%', width: `${(z.count / maxZone) * 100}%`, background: 'var(--purple)', boxShadow: '0 0 10px var(--purple)', transition: 'width 1s cubic-bezier(0.4, 0, 0.2, 1)' }} />
-                  </div>
-                </div>
-              ))}
+          <div className="panel glass-panel" style={{ marginBottom: 18 }}>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Clock size={18} color="var(--accent)" /> {lang ? 'النشاط حسب ساعة اليوم' : 'Activity by hour of day'}
+            </h3>
+            <div className="hint" style={{ marginBottom: 4 }}>
+              {totals.busiestHour?.sightings
+                ? (lang
+                  ? `أكثر الساعات ازدحاماً ${String(totals.busiestHour.hour).padStart(2, '0')}:00`
+                  : `Busiest hour is ${String(totals.busiestHour.hour).padStart(2, '0')}:00 — useful for shift planning.`)
+                : (lang ? 'لا توجد رصدات بعد.' : 'No sightings recorded yet.')}
             </div>
+            <Columns data={data.hourly} xKey="hour" yKey="sightings"
+              formatX={(hour) => `${String(hour).padStart(2, '0')}`}
+              formatTip={(row) => `${String(row.hour).padStart(2, '0')}:00 — ${row.sightings.toLocaleString()} ${lang ? 'رصدة' : 'detections'}`} />
           </div>
 
-          {/* By type */}
-          <div className="panel glass-panel">
-            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><PieChart size={18} color="var(--accent)" /> {lang ? 'التوزيع الديموغرافي' : 'Demographic Distribution'}</h3>
-            <div style={{ marginTop: 16 }}>
-              {byType.map((x, i) => (
-                <div key={i} style={{ marginBottom: 14 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                    <span style={{ color: 'var(--txt)' }}>{x.label}</span>
-                    <b style={{ color: '#fff' }}>{x.count}</b>
-                  </div>
-                  <div style={{ height: 8, background: 'var(--stat-bg)', borderRadius: 5, overflow: 'hidden', border: '1px solid var(--glass-border)' }}>
-                    <div style={{ height: '100%', width: `${(x.count / maxType) * 100}%`, background: x.color, boxShadow: `0 0 10px ${x.color}`, transition: 'width 1s cubic-bezier(0.4, 0, 0.2, 1)' }} />
-                  </div>
-                </div>
-              ))}
+          <div className="two">
+            <div className="panel glass-panel">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Cctv size={18} color="var(--accent)" /> {lang ? 'انشغال الكاميرات' : 'Busiest cameras'}
+              </h3>
+              <Bars data={camerasShown.slice(0, 8)} labelKey="name" valueKey="sightings" color={SERIES[0]}
+                empty={lang ? 'لا توجد رصدات' : 'No sightings in this period'} />
             </div>
-            
-            <div className="panel glass-panel" style={{ padding: '12px 16px', display: 'flex', gap: 12, alignItems: 'center', marginTop: 24, background: 'rgba(0,164,196,0.08)', border: '1px solid rgba(0,164,196,0.2)' }}>
-              <Info size={20} color="var(--accent)" style={{ flexShrink: 0 }} />
-              <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--txt)' }}>
-                {lang 
-                  ? 'يتم تحديث هذه التحليلات فورياً بناءً على بيانات الذكاء الاصطناعي (AI) الخاصة بكاميرات المراقبة، ونماذج التعدي (SEF)، وقاعدة الوجوه الحية.'
-                  : 'These analytics update in real-time based on live AI camera telemetry, Security Event Forms (SEF), and the active Face Database.'}
+
+            <div className="panel glass-panel">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Building2 size={18} color="var(--accent)" /> {lang ? 'انشغال المباني' : 'Busiest buildings'}
+              </h3>
+              <Bars data={buildingsShown.slice(0, 8)} labelKey="building" valueKey="sightings" color={SERIES[2]}
+                empty={lang ? 'لا توجد رصدات' : 'No sightings in this period'} />
+            </div>
+
+            <div className="panel glass-panel">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Users size={18} color="var(--accent)" /> {lang ? 'من شوهد' : 'Who was seen'}
+              </h3>
+              <div style={{ marginTop: 16 }}>
+                <Donut slices={peopleSlices} centerValue={totals.people.toLocaleString()}
+                  centerLabel={lang ? 'أشخاص' : 'people'} />
               </div>
             </div>
+
+            <div className="panel glass-panel">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <ShieldAlert size={18} color="var(--accent)" /> {lang ? 'مصدر التنبيهات' : 'Where alerts come from'}
+              </h3>
+              <Bars data={totals.alerts.byCamera.slice(0, 8)} labelKey="name" valueKey="count" color={SERIES[1]}
+                empty={lang ? 'لا توجد تنبيهات في هذه الفترة.' : 'No alerts in this period.'} />
+            </div>
           </div>
-        </div>
-      </div>
+
+          {/* The table view: every number above, readable without colour. */}
+          <div className="panel glass-panel" style={{ padding: 0, marginTop: 18, overflowX: 'auto', border: 'none' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>{lang ? 'الكاميرا' : 'Camera'}</th>
+                  <th>{lang ? 'المشروع' : 'Project'}</th>
+                  <th>{lang ? 'المبنى' : 'Building'}</th>
+                  <th>{lang ? 'الرصد' : 'Detections'}</th>
+                  <th>{lang ? 'غرباء' : 'Strangers'}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {camerasShown.length ? camerasShown.map(cam => (
+                  <tr key={cam.id}>
+                    <td>
+                      <b>{cam.name}</b>
+                      {cam.removed && (
+                        <span className="tag watch" style={{ marginInlineStart: 6, fontSize: 10 }}
+                          title={lang
+                            ? 'كاميرا محذوفة — الرصدات محفوظة'
+                            : 'This camera was removed; its past sightings are kept'}>
+                          {lang ? 'محذوفة' : 'removed'}
+                        </span>
+                      )}
+                    </td>
+                    <td>{cam.project || '—'}</td>
+                    <td className="mono">{cam.building || '—'}</td>
+                    <td className="mono">{cam.sightings.toLocaleString()}</td>
+                    <td className="mono">{cam.strangers.toLocaleString()}</td>
+                  </tr>
+                )) : (
+                  <tr><td colSpan={5} className="sub" style={{ padding: 16 }}>
+                    {lang ? 'لا توجد رصدات في هذه الفترة.' : 'No sightings in this period.'}
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </>
   );
 }

@@ -8,14 +8,18 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { Brackets, DataSource, In, Repository } from 'typeorm';
 import { AiGatewayService } from '../ai-gateway/ai-gateway.service';
 import { enrollmentNote } from '../ai-gateway/enrollment-result';
 import {
   PROVISIONAL_NAME, PROVISIONAL_ROLE, PURGE_INTERVAL_MS,
   abandonedCaptures, canReuseCapture, isDuplicateMatch, isReleasable,
 } from './capture-lifecycle';
-import { HouseholdMemberInput, householdProblems, normalizeMember } from './household-rules';
+import { RELEASED_BY } from './identity-lock';
+import {
+  HouseholdMemberInput, householdProblems, normalizeMember,
+  duplicateNationalIdProblems, identitiesInSubmission,
+} from './household-rules';
 
 import { Face } from '../faces/entities/face.entity';
 import { CreateEnrollmentDto } from './dto/create-enrollment.dto';
@@ -59,6 +63,16 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async create(createDto: CreateEnrollmentDto) {
+    // Also enforced here, not only in createSelfService: an admin POSTing a
+    // registration reaches this method directly, and one National ID still
+    // belongs to exactly one person.
+    const household = (createDto.family ?? []) as HouseholdMemberInput[];
+    const duplicates = duplicateNationalIdProblems(
+      createDto.owner as Record<string, unknown>, household,
+    );
+    if (duplicates.length) throw new ConflictException(duplicates.join(' | '));
+    await this.assertHouseholdIdsUnclaimed(household, createDto.owner as Record<string, unknown>);
+
     const identity = this.normalizedIdentity(createDto.owner as Record<string, unknown>);
     const ref = createDto.ref || `STMC-${Math.floor(100000 + Math.random() * 900000)}`;
     const storedOwner = await this.storage.storeEnrollmentOwner(ref, createDto.owner as Record<string, unknown>);
@@ -123,9 +137,15 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
     const { nid, mobile } = this.normalizedIdentity(owner);
     if (!nid || !mobile) throw new ConflictException('National ID and mobile number are required');
 
+    // A rejected registration no longer reserves the identity: the applicant
+    // was asked to correct something and send the form again, and refusing
+    // that resubmission as a duplicate of the rejected attempt left them with
+    // no way back in.
     const existing = await this.enrollRepo.createQueryBuilder('enrollment')
-      .where('enrollment.nationalIdNormalized = :nid OR enrollment.mobileNormalized = :mobile', { nid, mobile })
-      .orWhere("enrollment.owner ->> 'nid' = :nid OR enrollment.owner ->> 'mobile' = :mobile", { nid, mobile })
+      .where('enrollment.status != :released', { released: RELEASED_BY })
+      .andWhere(new Brackets((group) => group
+        .where('enrollment.nationalIdNormalized = :nid OR enrollment.mobileNormalized = :mobile', { nid, mobile })
+        .orWhere("enrollment.owner ->> 'nid' = :nid OR enrollment.owner ->> 'mobile' = :mobile", { nid, mobile })))
       .getOne();
     if (existing) throw new ConflictException('A registration already exists for this National ID or mobile number');
 
@@ -134,6 +154,10 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
     const members = (createDto.family ?? []) as HouseholdMemberInput[];
     const problems = householdProblems(members);
     if (problems.length) throw new ConflictException(problems.join(' | '));
+
+    const duplicates = duplicateNationalIdProblems(owner, members);
+    if (duplicates.length) throw new ConflictException(duplicates.join(' | '));
+    await this.assertHouseholdIdsUnclaimed(members, owner);
 
     await this.assertUnitsFree(createDto);
     await this.rejectRecognizedFace(owner, createDto.aiPersonId);
@@ -176,6 +200,47 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
       throw new ConflictException(clashes.length === 1
         ? `Unit ${clashes[0]} is already registered by its owner. If this is your unit, contact the community office.`
         : `These units are already registered by their owners: ${clashes.join(', ')}.`);
+    }
+  }
+
+  /**
+   * A household member's National ID must be free too. The unique index only
+   * covers `nationalIdNormalized`, which holds the owner's ID, so without this
+   * a son could be registered under an ID already used by an owner — or by a
+   * member of another household — and two people would share one identity.
+   *
+   * Stored IDs are compared digit-by-digit because older rows kept whatever
+   * spacing the applicant typed.
+   */
+  private async assertHouseholdIdsUnclaimed(
+    members: HouseholdMemberInput[], owner?: Record<string, unknown>,
+  ) {
+    // The owner is included so his ID is also checked against other
+    // households' members, which the unique index cannot see.
+    const ids = [...new Set(
+      identitiesInSubmission(owner, members).map((holder) => holder.nid).filter(Boolean),
+    )];
+    if (!ids.length) return;
+
+    // Rejected registrations are skipped here too: a household that was
+    // turned down must be able to send the corrected form, and its own
+    // National IDs would otherwise read as already taken.
+    const clash = await this.enrollRepo.createQueryBuilder('enrollment')
+      .where('enrollment.status != :released', { released: RELEASED_BY })
+      .andWhere(new Brackets((group) => group
+        .where('enrollment.nationalIdNormalized IN (:...ids)', { ids })
+        .orWhere("regexp_replace(enrollment.owner ->> 'nid', '\D', '', 'g') IN (:...ids)", { ids })
+        .orWhere(
+          `EXISTS (SELECT 1 FROM jsonb_array_elements(enrollment.family) AS member
+                   WHERE regexp_replace(member ->> 'nid', '\D', '', 'g') IN (:...ids))`,
+          { ids },
+        )))
+      .getOne();
+
+    if (clash) {
+      throw new ConflictException(
+        `One of the household National IDs is already registered under ${clash.ref}`,
+      );
     }
   }
 
@@ -465,6 +530,13 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async reject(ref: string, reason?: string) {
+    // A refusal without a stated reason leaves the applicant with nothing to
+    // fix and the decision with no account of itself, so it is not accepted.
+    const stated = (reason ?? '').trim();
+    if (stated.length < 3) {
+      throw new ConflictException('Give a reason for rejecting this registration');
+    }
+
     const enrollment = await this.findEntity(ref);
     if (!['pending', 'failed'].includes(enrollment.status)) {
       throw new ConflictException(`Enrollment cannot be rejected while status is ${enrollment.status}`);
@@ -482,7 +554,12 @@ export class EnrollmentsService implements OnModuleInit, OnModuleDestroy {
 
     enrollment.status = 'rejected';
     enrollment.aiSyncStatus = 'not_started';
-    enrollment.validationNote = reason || 'Rejected by administrator';
+    enrollment.validationNote = stated;
+    // The unique index on these columns is what physically blocks a second
+    // submission. Clearing them hands the National ID and mobile number back
+    // to the applicant; both values remain on `owner` for the record.
+    enrollment.nationalIdNormalized = null as unknown as string;
+    enrollment.mobileNormalized = null as unknown as string;
     enrollment.auditLog = [...(enrollment.auditLog ?? []),
       this.audit('rejected', { reason: enrollment.validationNote, removedFromAi })];
     const saved = await this.enrollRepo.save(enrollment);
